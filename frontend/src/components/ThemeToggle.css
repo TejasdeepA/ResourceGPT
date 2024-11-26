@@ -1,0 +1,17 @@
+/* ThemeToggle.css */
+.theme-toggle {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+   }
+   .theme-toggle button {
+    background-color: var(--highlight-light);
+    color: var(--text-light);
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+   }
+   .theme-toggle button:hover {
+    background-color: var(--border-light);
+   }
