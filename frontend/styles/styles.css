@@ -1,0 +1,36 @@
+/* styles.css */
+
+:root {
+    --soft-white: #F4FAFF;
+    --light-gray: #DEE7E7;
+    --lavender-gray: #B7ADCF;
+    --dark-gray: #4F646F;
+    --almost-black: #535657;
+  
+    --highlight-light: #B7ADCF; /* Example variable, adjust as needed */
+    --secondary-light: #F4FAFF;
+    --border-light: #DEE7E7;
+    --text-light: #535657;
+  }
+  
+  body.light {
+    background-color: var(--soft-white);
+    color: var(--text-light);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  body.dark {
+    background-color: var(--almost-black);
+    color: var(--soft-white);
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  /* Additional global styles */
+  body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    position: relative;
+  }
+  

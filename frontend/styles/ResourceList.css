@@ -1,36 +1,45 @@
 /* ResourceList.css */
+
 .resource-list {
     margin: 20px auto;
-    width: 80%;
-    max-width: 1000px;
+    width: 90%;
+    max-width: 1200px;
     display: grid;
     gap: 20px;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-   }
-   .resource-item {
+  }
+  
+  .resource-item {
     background-color: var(--secondary-light);
     border-radius: 15px;
     padding: 20px;
     box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
     transition: box-shadow 0.3s ease-in-out, transform 0.2s ease-in-out;
     color: var(--text-light);
-   }
-   .resource-item:hover {
+  }
+  
+  .resource-item:hover {
     box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
     transform: translateY(-5px);
-   }
-   .resource-title {
-    font-size: 1.5em;
+  }
+  
+  .resource-title {
+    font-size: 1.2em;
     font-weight: bold;
     color: var(--highlight-light);
-   }
-   .resource-url {
+    text-decoration: none;
+  }
+  
+  .resource-url {
     font-size: 0.9em;
     color: var(--text-light);
     margin-top: 5px;
-   }
-   .resource-snippet {
+    word-break: break-all;
+  }
+  
+  .resource-snippet {
     margin-top: 10px;
     font-size: 1em;
     color: var(--text-light);
-   }
+  }
+  
