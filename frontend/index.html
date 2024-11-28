@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ResourceGPT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap" rel="stylesheet">
   <!-- Link to CSS Files -->
   <link rel="stylesheet" href="styles/styles.css">
   <link rel="stylesheet" href="styles/SearchBar.css">
@@ -11,17 +14,29 @@
   <link rel="stylesheet" href="styles/ThemeToggle.css">
 </head>
 <body>
-  <div class="theme-toggle">
-    <button id="theme-toggle-button">Switch to Dark Theme</button>
-  </div>
+  <div class="container">
+    <div class="chat-container">
+      <h1 class="title">ResourceGPT.</h1>
+      
+      <div class="input-container">
+        <div class="search-bar">
+          <input type="text" id="search-input" placeholder="Search for computer science resources...">
+          <button id="search-button">
+            <svg stroke="currentColor" fill="none" stroke-width="2" viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" height="1em" width="1em" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22 2L11 13"></path>
+              <path d="M22 2L15 22L11 13L2 9L22 2Z"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="disclaimer">
+          ResourceGPT can make mistakes. Consider checking important information.
+        </div>
+      </div>
 
-  <div class="search-bar">
-    <input type="text" id="search-input" placeholder="Search for computer science resources...">
-    <button id="search-button">Search</button>
-  </div>
-
-  <div class="resource-list" id="resource-list">
-    <!-- Resources will be dynamically inserted here -->
+      <div class="resource-list" id="resource-list">
+        <!-- Resources will be dynamically inserted here -->
+      </div>
+    </div>
   </div>
 
   <!-- Link to JavaScript Files -->
