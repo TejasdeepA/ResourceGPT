@@ -60,6 +60,38 @@ async function analyzeQuery(query) {
   }
 }
 
+// Function to rank resources using Gemini
+async function rankResources(query, resources) {
+  try {
+    const prompt = `Given the search query "${query}", rank these resources based on their relevance, quality, and educational value. 
+    Consider factors like: content depth, reliability of source, relevance to query, and potential learning value.
+    Return only a JSON array of indices (0-based) for the top 5 most valuable resources, ordered from best to worst.
+    Resources to rank:
+    ${resources.map((r, i) => `${i}. Title: ${r.title}\nDescription: ${r.description}\n`).join('\n')}`;
+
+    const response = await axios.post(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }]
+    });
+
+    const rankingText = response.data.candidates[0].content.parts[0].text;
+    // Extract array from the response text using regex
+    const match = rankingText.match(/\[(.*?)\]/);
+    if (match) {
+      return JSON.parse(match[0])
+        .slice(0, 5) // Ensure we only get top 5
+        .filter(index => index < resources.length); // Ensure valid indices
+    }
+    return [];
+  } catch (error) {
+    console.error('Error ranking resources:', error);
+    return []; // Return empty array on error
+  }
+}
+
 // Function to search GitHub
 async function searchGitHub(keywords) {
   try {
@@ -87,21 +119,40 @@ async function searchGitHub(keywords) {
 async function searchYouTube(keywords) {
   try {
     const query = keywords.join(' ');
-    const response = await axios.get(YOUTUBE_API_URL, {
+    const response = await axios.get(`https://www.googleapis.com/youtube/v3/search`, {
       params: {
         part: 'snippet',
         q: query,
-        key: YOUTUBE_API_KEY,
         type: 'video',
-        maxResults: 5
+        maxResults: 10,
+        key: process.env.YOUTUBE_API_KEY
       }
     });
+
+    // Get video statistics in a separate call
+    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
+    const statsResponse = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
+      params: {
+        part: 'statistics',
+        id: videoIds,
+        key: process.env.YOUTUBE_API_KEY
+      }
+    });
+
+    // Create a map of video stats
+    const videoStats = {};
+    statsResponse.data.items.forEach(item => {
+      videoStats[item.id] = item.statistics;
+    });
+
     return response.data.items.map(item => ({
-      type: 'youtube',
       title: item.snippet.title,
-      description: item.snippet.description,
-      url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-      thumbnail: item.snippet.thumbnails.default.url
+      url: `https://youtube.com/watch?v=${item.id.videoId}`,
+      description: truncateText(item.snippet.description, 150),
+      thumbnail: item.snippet.thumbnails.default.url,
+      views: videoStats[item.id.videoId]?.viewCount || 0,
+      likes: videoStats[item.id.videoId]?.likeCount || 0,
+      type: 'youtube'
     }));
   } catch (error) {
     console.error('Error searching YouTube:', error);
@@ -112,32 +163,25 @@ async function searchYouTube(keywords) {
 // Function to search Reddit
 async function searchReddit(keywords) {
   try {
-    const token = await getRedditAccessToken();
     const query = keywords.join(' ');
-    const response = await axios.get(REDDIT_SEARCH_URL, {
-      params: {
-        q: query,
-        limit: 5,
-        sort: 'relevance',
-        t: 'all',
-        restrict_sr: 'programming'
-      },
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
+    const response = await axios.get(`https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=10`);
     return response.data.data.children.map(post => ({
-      type: 'reddit',
       title: post.data.title,
-      description: post.data.selftext.substring(0, 200),
       url: `https://reddit.com${post.data.permalink}`,
-      score: post.data.score
+      description: truncateText(post.data.selftext || 'No description available', 150),
+      upvotes: post.data.ups,
+      type: 'reddit'
     }));
   } catch (error) {
     console.error('Error searching Reddit:', error);
     return [];
   }
+}
+
+// Helper function to truncate text
+function truncateText(text, maxLength) {
+  if (text.length <= maxLength) return text;
+  return text.substr(0, maxLength) + '...';
 }
 
 // Main search endpoint

@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 });
-  
+
 // Function to handle search
 async function handleSearch() {
     const query = document.getElementById('search-input').value.trim();
@@ -41,108 +41,130 @@ async function handleSearch() {
         resourceList.innerHTML = '<div class="error">Error fetching resources. Please try again later.</div>';
     }
 }
-  
+
 // Function to display resources
 function displayResources(data) {
     const resourceList = document.getElementById('resource-list');
     resourceList.innerHTML = ''; // Clear previous results
   
-    // Display extracted keywords
-    if (data.keywords && data.keywords.length > 0) {
-        const keywordsDiv = document.createElement('div');
-        keywordsDiv.className = 'keywords';
-        keywordsDiv.innerHTML = `<strong>Keywords:</strong> ${data.keywords.join(', ')}`;
-        resourceList.appendChild(keywordsDiv);
-    }
-  
     const results = data.results || {};
-    const allResults = [];
+    const allResources = [];
   
-    // Process GitHub results
-    if (results.github && results.github.length > 0) {
-        const githubSection = createSection('GitHub Repositories', results.github.map(repo => ({
-            title: repo.title,
-            url: repo.url,
-            description: `${repo.description || 'No description available'} (⭐ ${repo.stars})`,
-            type: 'github'
+    // Combine all results into a single array with source information
+    if (results.github) {
+        allResources.push(...results.github.map(repo => ({
+            ...repo,
+            source: 'github'
         })));
-        resourceList.appendChild(githubSection);
     }
   
-    // Process Reddit results
-    if (results.reddit && results.reddit.length > 0) {
-        const redditSection = createSection('Reddit Discussions', results.reddit.map(post => ({
-            title: post.title,
-            url: post.url,
-            description: post.description || 'No description available',
-            type: 'reddit'
+    if (results.reddit) {
+        allResources.push(...results.reddit.map(post => ({
+            ...post,
+            source: 'reddit'
         })));
-        resourceList.appendChild(redditSection);
     }
   
-    // Process YouTube results
-    if (results.youtube && results.youtube.length > 0) {
-        const youtubeSection = createSection('YouTube Videos', results.youtube.map(video => ({
-            title: video.title,
-            url: video.url,
-            description: video.description || 'No description available',
-            thumbnail: video.thumbnail,
-            type: 'youtube'
+    if (results.youtube) {
+        allResources.push(...results.youtube.map(video => ({
+            ...video,
+            source: 'youtube'
         })));
-        resourceList.appendChild(youtubeSection);
     }
   
-    // Show no results message if nothing found
-    if (!results.github?.length && !results.reddit?.length && !results.youtube?.length) {
-        resourceList.innerHTML = '<div class="no-results">No resources found.</div>';
+    // Display all resources in a single section
+    if (allResources.length > 0) {
+        const section = document.createElement('div');
+        section.className = 'resource-section';
+        
+        const sectionTitle = document.createElement('h2');
+        sectionTitle.className = 'section-title';
+        sectionTitle.textContent = 'Search Results';
+        section.appendChild(sectionTitle);
+        
+        const resourceItems = document.createElement('div');
+        resourceItems.className = 'resource-items';
+        
+        allResources.forEach((item, index) => {
+            const resourceItem = document.createElement('div');
+            resourceItem.className = 'resource-item';
+            
+            const rankBadge = document.createElement('div');
+            rankBadge.className = 'rank-badge';
+            rankBadge.textContent = `#${index + 1}`;
+            resourceItem.appendChild(rankBadge);
+            
+            const content = document.createElement('div');
+            content.className = 'resource-content';
+            
+            if (item.thumbnail) {
+                const thumbnail = document.createElement('img');
+                thumbnail.src = item.thumbnail;
+                thumbnail.className = 'resource-thumbnail';
+                content.appendChild(thumbnail);
+            }
+            
+            const title = document.createElement('a');
+            title.href = item.url;
+            title.target = '_blank';
+            title.className = 'resource-title';
+            title.textContent = item.title;
+            content.appendChild(title);
+            
+            const description = document.createElement('p');
+            description.className = 'resource-description';
+            description.textContent = item.description;
+            content.appendChild(description);
+            
+            // Add metrics based on source
+            const metrics = document.createElement('div');
+            metrics.className = 'resource-metrics';
+            
+            if (item.source === 'reddit' && item.upvotes !== undefined) {
+                const upvotes = document.createElement('span');
+                upvotes.className = 'metric upvotes';
+                upvotes.innerHTML = `<i class="fas fa-arrow-up"></i> ${formatNumber(item.upvotes)}`;
+                metrics.appendChild(upvotes);
+            }
+            
+            if (item.source === 'youtube') {
+                if (item.views !== undefined) {
+                    const views = document.createElement('span');
+                    views.className = 'metric views';
+                    views.innerHTML = `<i class="fas fa-eye"></i> ${formatNumber(item.views)}`;
+                    metrics.appendChild(views);
+                }
+                if (item.likes !== undefined) {
+                    const likes = document.createElement('span');
+                    likes.className = 'metric likes';
+                    likes.innerHTML = `<i class="fas fa-thumbs-up"></i> ${formatNumber(item.likes)}`;
+                    metrics.appendChild(likes);
+                }
+            }
+            
+            content.appendChild(metrics);
+            resourceItem.appendChild(content);
+            resourceItems.appendChild(resourceItem);
+        });
+        
+        section.appendChild(resourceItems);
+        resourceList.appendChild(section);
+    } else {
+        resourceList.innerHTML = '<div class="no-results">No resources found. Try a different search query.</div>';
     }
 }
 
-// Function to create a section of results
-function createSection(title, items) {
-    const section = document.createElement('div');
-    section.className = 'resource-section';
-    
-    const sectionTitle = document.createElement('h2');
-    sectionTitle.className = 'section-title';
-    sectionTitle.textContent = title;
-    section.appendChild(sectionTitle);
-    
-    items.forEach(item => {
-        const resourceItem = document.createElement('div');
-        resourceItem.className = `resource-item ${item.type}`;
-        
-        // Resource Title
-        const titleLink = document.createElement('a');
-        titleLink.href = item.url;
-        titleLink.target = '_blank';
-        titleLink.rel = 'noopener noreferrer';
-        titleLink.className = 'resource-title';
-        titleLink.textContent = item.title;
-        
-        // Thumbnail for YouTube videos
-        if (item.type === 'youtube' && item.thumbnail) {
-            const thumbnail = document.createElement('img');
-            thumbnail.src = item.thumbnail;
-            thumbnail.alt = item.title;
-            thumbnail.className = 'video-thumbnail';
-            resourceItem.appendChild(thumbnail);
-        }
-        
-        // Resource Description
-        const snippetDiv = document.createElement('div');
-        snippetDiv.className = 'resource-snippet';
-        snippetDiv.textContent = item.description;
-        
-        resourceItem.appendChild(titleLink);
-        resourceItem.appendChild(snippetDiv);
-        
-        section.appendChild(resourceItem);
-    });
-    
-    return section;
+// Helper function to format numbers
+function formatNumber(num) {
+    if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M';
+    }
+    if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K';
+    }
+    return num.toString();
 }
-  
+
 // Function to initialize theme based on localStorage
 function initializeTheme() {
     const savedTheme = localStorage.getItem('theme') || 'light';
@@ -151,14 +173,14 @@ function initializeTheme() {
     const themeToggleButton = document.getElementById('theme-toggle-button');
     themeToggleButton.addEventListener('click', toggleTheme);
 }
-  
+
 // Function to toggle theme
 function toggleTheme() {
     const currentTheme = document.body.classList.contains('light') ? 'light' : 'dark';
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
 }
-  
+
 // Function to set theme
 function setTheme(theme) {
     document.body.classList.remove('light', 'dark');
