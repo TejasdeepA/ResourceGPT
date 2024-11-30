@@ -1,15 +1,18 @@
 // script.js
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize Theme
-    initializeTheme();
-  
     // Initialize Search Functionality
     const searchButton = document.getElementById('search-button');
+    const searchInput = document.getElementById('search-input');
+    const inputContainer = document.querySelector('.input-container');
+    
+    // Reset the layout when the page loads
+    inputContainer.classList.remove('elevated');
+    document.getElementById('resource-list').classList.remove('visible');
+  
     searchButton.addEventListener('click', handleSearch);
   
     // Enable Enter key to trigger search
-    const searchInput = document.getElementById('search-input');
     searchInput.addEventListener('keypress', function (e) {
       if (e.key === 'Enter') {
         handleSearch();
@@ -24,10 +27,14 @@ async function handleSearch() {
         alert('Please enter a search query.');
         return;
     }
+
+    // Add elevated class to container
+    document.querySelector('.input-container').classList.add('elevated');
   
     // Show loading indicator
     const resourceList = document.getElementById('resource-list');
     resourceList.innerHTML = '<div class="loading">Searching resources...</div>';
+    resourceList.classList.add('visible');
   
     try {
         const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}`);
@@ -54,21 +61,24 @@ function displayResources(data) {
     if (results.github) {
         allResources.push(...results.github.map(repo => ({
             ...repo,
-            source: 'github'
+            source: 'github',
+            description: truncateText(repo.description, 'github')
         })));
     }
   
     if (results.reddit) {
         allResources.push(...results.reddit.map(post => ({
             ...post,
-            source: 'reddit'
+            source: 'reddit',
+            description: truncateText(post.description, 'reddit')
         })));
     }
   
     if (results.youtube) {
         allResources.push(...results.youtube.map(video => ({
             ...video,
-            source: 'youtube'
+            source: 'youtube',
+            description: truncateText(video.description, 'youtube')
         })));
     }
   
@@ -154,6 +164,15 @@ function displayResources(data) {
     }
 }
 
+// Function to truncate text with character limit
+function truncateText(text, source = '') {
+    if (!text) return '';
+    // Shorter limit for GitHub descriptions
+    const maxLength = source === 'github' ? 60 : 100;
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength).trim().replace(/[.,;]?\s+\S*$/, '') + '...';
+}
+
 // Helper function to format numbers
 function formatNumber(num) {
     if (num >= 1000000) {
@@ -163,31 +182,4 @@ function formatNumber(num) {
         return (num / 1000).toFixed(1) + 'K';
     }
     return num.toString();
-}
-
-// Function to initialize theme based on localStorage
-function initializeTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    setTheme(savedTheme);
-  
-    const themeToggleButton = document.getElementById('theme-toggle-button');
-    themeToggleButton.addEventListener('click', toggleTheme);
-}
-
-// Function to toggle theme
-function toggleTheme() {
-    const currentTheme = document.body.classList.contains('light') ? 'light' : 'dark';
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-    setTheme(newTheme);
-}
-
-// Function to set theme
-function setTheme(theme) {
-    document.body.classList.remove('light', 'dark');
-    document.body.classList.add(theme);
-    localStorage.setItem('theme', theme);
-    
-    // Update theme toggle button icon
-    const themeIcon = document.querySelector('.theme-toggle-icon');
-    themeIcon.textContent = theme === 'light' ? '🌙' : '☀️';
 }
