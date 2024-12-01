@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchButton = document.getElementById('search-button');
     const searchInput = document.getElementById('search-input');
     const inputContainer = document.querySelector('.input-container');
+    const platformForm = document.querySelector('.search-bar form');
     
     // Reset the layout when the page loads
     inputContainer.classList.remove('elevated');
@@ -17,6 +18,16 @@ document.addEventListener('DOMContentLoaded', () => {
       if (e.key === 'Enter') {
         handleSearch();
       }
+    });
+
+    // Add platform change listener
+    platformForm.addEventListener('change', (e) => {
+        const selectedPlatform = platformForm.querySelector('input[name="platform"]:checked').value;
+        console.log('Selected platform:', selectedPlatform);
+        // Trigger search if there's a query
+        if (searchInput.value.trim()) {
+            handleSearch();
+        }
     });
 });
 
@@ -37,7 +48,9 @@ async function handleSearch() {
     resourceList.classList.add('visible');
   
     try {
-        const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}`);
+        const form = document.querySelector('.search-bar form');
+        const selectedPlatform = form.querySelector('input[name="platform"]:checked').value;
+        const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}&platform=${selectedPlatform}`);
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
@@ -56,9 +69,10 @@ function displayResources(data) {
   
     const results = data.results || {};
     const allResources = [];
+    const selectedPlatform = document.querySelector('.search-bar form input[name="platform"]:checked').value;
   
     // Combine all results into a single array with source information
-    if (results.github) {
+    if (results.github && (selectedPlatform === 'all' || selectedPlatform === 'github')) {
         allResources.push(...results.github.map(repo => ({
             ...repo,
             source: 'github',
@@ -66,7 +80,7 @@ function displayResources(data) {
         })));
     }
   
-    if (results.reddit) {
+    if (results.reddit && (selectedPlatform === 'all' || selectedPlatform === 'reddit')) {
         allResources.push(...results.reddit.map(post => ({
             ...post,
             source: 'reddit',
@@ -74,7 +88,7 @@ function displayResources(data) {
         })));
     }
   
-    if (results.youtube) {
+    if (results.youtube && (selectedPlatform === 'all' || selectedPlatform === 'youtube')) {
         allResources.push(...results.youtube.map(video => ({
             ...video,
             source: 'youtube',
@@ -89,7 +103,7 @@ function displayResources(data) {
         
         const sectionTitle = document.createElement('h2');
         sectionTitle.className = 'section-title';
-        sectionTitle.textContent = 'Search Results';
+        sectionTitle.textContent = selectedPlatform === 'all' ? 'Search Results' : `${selectedPlatform.charAt(0).toUpperCase() + selectedPlatform.slice(1)} Results`;
         section.appendChild(sectionTitle);
         
         const resourceItems = document.createElement('div');

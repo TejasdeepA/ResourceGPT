@@ -71,3 +71,46 @@
 .search-bar.elevated {
   margin-bottom: 2rem;
 }
+
+/* Radio button form styles */
+.search-bar form {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-top: 15px;
+  flex-wrap: wrap;
+}
+
+.radio-container {
+  position: relative;
+}
+
+.search-bar input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.search-bar label {
+  display: inline-block;
+  padding: 8px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  background-color: var(--background-secondary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.search-bar label:hover {
+  background-color: var(--background-hover);
+}
+
+/* Style for selected radio button label */
+.search-bar input[type="radio"]:checked + label {
+  background-color: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
