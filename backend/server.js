@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const { checkGitHubRelevance, checkRedditRelevance } = require('./utils/relevanceChecker');
 require('dotenv').config();
 
 const app = express();
@@ -93,22 +94,35 @@ async function rankResources(query, resources) {
 }
 
 // Function to search GitHub
-async function searchGitHub(keywords) {
+async function searchGitHub(keywords, originalQuery) {
   try {
     const query = keywords.join('+');
-    const response = await axios.get(`${GITHUB_API_URL}?q=${query}&sort=stars`, {
+    const response = await axios.get(`${GITHUB_API_URL}?q=${query}&sort=stars&per_page=50`, {
       headers: {
         'Authorization': `Bearer ${GITHUB_TOKEN}`,
         'Accept': 'application/vnd.github.v3+json'
       }
     });
-    return response.data.items.slice(0, 5).map(repo => ({
-      type: 'github',
-      title: repo.full_name,
-      description: repo.description,
-      url: repo.html_url,
-      stars: repo.stargazers_count
-    }));
+
+    // Filter and check relevance for each repository
+    const relevantRepos = [];
+    for (const repo of response.data.items) {
+      if (await checkGitHubRelevance(repo, originalQuery, GEMINI_API_KEY)) {
+        relevantRepos.push({
+          type: 'github',
+          title: repo.full_name,
+          description: repo.description,
+          url: repo.html_url,
+          stars: repo.stargazers_count,
+          topics: repo.topics || [],
+          created_at: repo.created_at,
+          language: repo.language,
+          forks: repo.forks_count
+        });
+      }
+      if (relevantRepos.length >= 15) break; // Increased from 5 to 15
+    }
+    return relevantRepos;
   } catch (error) {
     console.error('Error searching GitHub:', error);
     return [];
@@ -124,8 +138,11 @@ async function searchYouTube(keywords) {
         part: 'snippet',
         q: query,
         type: 'video',
-        maxResults: 10,
-        key: process.env.YOUTUBE_API_KEY
+        maxResults: 15, // Increased from 10
+        key: process.env.YOUTUBE_API_KEY,
+        relevanceLanguage: 'en',
+        videoType: 'any',
+        order: 'relevance'
       }
     });
 
@@ -133,7 +150,7 @@ async function searchYouTube(keywords) {
     const videoIds = response.data.items.map(item => item.id.videoId).join(',');
     const statsResponse = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
       params: {
-        part: 'statistics',
+        part: 'statistics,contentDetails',
         id: videoIds,
         key: process.env.YOUTUBE_API_KEY
       }
@@ -142,7 +159,10 @@ async function searchYouTube(keywords) {
     // Create a map of video stats
     const videoStats = {};
     statsResponse.data.items.forEach(item => {
-      videoStats[item.id] = item.statistics;
+      videoStats[item.id] = {
+        ...item.statistics,
+        duration: item.contentDetails.duration
+      };
     });
 
     return response.data.items.map(item => ({
@@ -152,6 +172,8 @@ async function searchYouTube(keywords) {
       thumbnail: item.snippet.thumbnails.default.url,
       views: videoStats[item.id.videoId]?.viewCount || 0,
       likes: videoStats[item.id.videoId]?.likeCount || 0,
+      duration: videoStats[item.id.videoId]?.duration || '',
+      publishedAt: item.snippet.publishedAt,
       type: 'youtube'
     }));
   } catch (error) {
@@ -161,17 +183,43 @@ async function searchYouTube(keywords) {
 }
 
 // Function to search Reddit
-async function searchReddit(keywords) {
+async function searchReddit(keywords, originalQuery) {
   try {
     const query = keywords.join(' ');
-    const response = await axios.get(`https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&limit=10`);
-    return response.data.data.children.map(post => ({
-      title: post.data.title,
-      url: `https://reddit.com${post.data.permalink}`,
-      description: truncateText(post.data.selftext || 'No description available', 150),
-      upvotes: post.data.ups,
-      type: 'reddit'
-    }));
+    const token = await getRedditAccessToken();
+    const response = await axios.get(REDDIT_SEARCH_URL, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'User-Agent': 'ResourceGPT/1.0'
+      },
+      params: {
+        q: query,
+        limit: 50,
+        sort: 'relevance',
+        type: 'link,self',
+        t: 'year' // Include content from the past year
+      }
+    });
+
+    // Filter and check relevance for each post
+    const relevantPosts = [];
+    for (const post of response.data.data.children) {
+      if (await checkRedditRelevance(post, originalQuery, GEMINI_API_KEY)) {
+        relevantPosts.push({
+          title: post.data.title,
+          url: `https://reddit.com${post.data.permalink}`,
+          description: truncateText(post.data.selftext || 'No description available', 150),
+          upvotes: post.data.ups,
+          subreddit: post.data.subreddit,
+          type: 'reddit',
+          created_utc: post.data.created_utc,
+          num_comments: post.data.num_comments,
+          score: post.data.score
+        });
+      }
+      if (relevantPosts.length >= 15) break; // Increased from 5 to 15
+    }
+    return relevantPosts;
   } catch (error) {
     console.error('Error searching Reddit:', error);
     return [];
@@ -197,20 +245,19 @@ app.get('/api/search', async (req, res) => {
 
     // Fetch results from all platforms concurrently
     const [githubResults, redditResults, youtubeResults] = await Promise.all([
-      searchGitHub(keywords),
-      searchReddit(keywords),
+      searchGitHub(keywords, query),
+      searchReddit(keywords, query),
       searchYouTube(keywords)
     ]);
 
-    // Combine and send results
-    res.json({
-      keywords,
-      results: {
-        github: githubResults,
-        reddit: redditResults,
-        youtube: youtubeResults
-      }
-    });
+    // Combine all results
+    const allResults = {
+      github: githubResults,
+      reddit: redditResults,
+      youtube: youtubeResults
+    };
+
+    res.json({ results: allResults });
   } catch (error) {
     console.error('Error in search endpoint:', error);
     res.status(500).json({ error: 'Internal server error' });
