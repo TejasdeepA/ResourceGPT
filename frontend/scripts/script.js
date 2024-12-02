@@ -44,7 +44,11 @@ async function handleSearch() {
   
     // Show loading indicator
     const resourceList = document.getElementById('resource-list');
-    resourceList.innerHTML = '<div class="loading">Searching resources...</div>';
+    resourceList.innerHTML = `
+        <div class="loading-container">
+            <div class="loading-spinner"></div>
+            <p>Searching across platforms...</p>
+        </div>`;
     resourceList.classList.add('visible');
   
     try {
