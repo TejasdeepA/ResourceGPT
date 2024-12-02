@@ -5,7 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchButton = document.getElementById('search-button');
     const searchInput = document.getElementById('search-input');
     const inputContainer = document.querySelector('.input-container');
-    const platformForm = document.querySelector('.search-bar form');
+    const platformForm = document.querySelector('.platform-selector form');
     
     // Reset the layout when the page loads
     inputContainer.classList.remove('elevated');
@@ -52,7 +52,7 @@ async function handleSearch() {
     resourceList.classList.add('visible');
   
     try {
-        const form = document.querySelector('.search-bar form');
+        const form = document.querySelector('.platform-selector form');
         const selectedPlatform = form.querySelector('input[name="platform"]:checked').value;
         const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}&platform=${selectedPlatform}`);
         if (!response.ok) {
@@ -73,7 +73,7 @@ function displayResources(data) {
   
     const results = data.results || {};
     const allResources = [];
-    const selectedPlatform = document.querySelector('.search-bar form input[name="platform"]:checked').value;
+    const selectedPlatform = document.querySelector('.platform-selector form input[name="platform"]:checked').value;
   
     // Combine all results into a single array with source information
     if (results.github && (selectedPlatform === 'all' || selectedPlatform === 'github')) {

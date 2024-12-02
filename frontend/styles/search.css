@@ -24,7 +24,7 @@
 
 .search-bar input:focus {
   outline: none;
-  border-color: #3498db;
+  border-color: #4169e1;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   background-color: var(--background-primary);
 }
@@ -39,7 +39,7 @@
   right: 10px;
   top: 50%;
   transform: translateY(-50%);
-  background: #3498db;
+  background: #4169e1;
   border: none;
   border-radius: 8px;
   cursor: pointer;
@@ -54,7 +54,7 @@
 }
 
 .search-bar button:hover {
-  background: #2980b9;
+  background: #385fd4;
   transform: translateY(-50%) scale(1.05);
 }
 
@@ -75,7 +75,7 @@
 }
 
 /* Radio button form styles */
-.search-bar form {
+.platform-selector form {
   display: flex;
   gap: 15px;
   justify-content: center;
@@ -88,7 +88,7 @@
   margin: 10px 15px 0 0;
 }
 
-.search-bar input[type="radio"] {
+.platform-selector input[type="radio"] {
   position: absolute;
   opacity: 0;
   width: 0;
@@ -96,7 +96,7 @@
   margin-right: 5px;
 }
 
-.search-bar label {
+.platform-selector label {
   display: inline-block;
   padding: 8px 16px;
   border: 1px solid var(--border-color);
@@ -108,13 +108,38 @@
   transition: all 0.2s ease;
 }
 
-.search-bar label:hover {
+.platform-selector label:hover {
   background-color: var(--background-hover);
 }
 
 /* Style for selected radio button label */
-.search-bar input[type="radio"]:checked + label {
+.platform-selector input[type="radio"]:checked + label {
   background-color: var(--primary-color);
   color: white;
   border-color: var(--primary-color);
+}
+
+
+.loading-spinner {
+  display: inline-block;
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: #4169e1;
+  animation: spin 1s ease-in-out infinite;
+  margin: 20px auto;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-container {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+  font-size: 14px;
 }
