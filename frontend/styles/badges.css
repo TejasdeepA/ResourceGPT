@@ -1,0 +1,111 @@
+/* Badge styles */
+.badge-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #fff;
+    gap: 4px;
+}
+
+.badge i {
+    font-size: 0.9rem;
+}
+
+/* Platform badges */
+.badge-youtube {
+    background-color: #ff0000;
+}
+
+.badge-github {
+    background-color: #24292e;
+}
+
+.badge-reddit {
+    background-color: #ff4500;
+}
+
+.badge-freecodecamp {
+    background-color: #0a0a23;
+}
+
+.badge-archive {
+    background-color: #2C3E50;
+}
+
+/* Content type badges */
+.badge-tutorial {
+    background-color: #3498db;
+}
+
+.badge-course {
+    background-color: #2ecc71;
+}
+
+/* Special badges */
+.badge-beginner {
+    background-color: #27ae60;
+}
+
+.badge-trending {
+    background-color: #e74c3c;
+}
+
+/* Resource item styles */
+.resource-item {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.resource-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.resource-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+}
+
+.resource-title {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.resource-title a {
+    color: #2c3e50;
+    text-decoration: none;
+}
+
+.resource-title a:hover {
+    color: #3498db;
+}
+
+.resource-description {
+    margin: 8px 0;
+    color: #666;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.resource-meta {
+    color: #888;
+    font-size: 0.9rem;
+    margin: 8px 0 0;
+}

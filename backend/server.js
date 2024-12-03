@@ -134,36 +134,121 @@ async function searchGitHub(keywords, originalQuery) {
 }
 
 // Function to search YouTube
-async function searchYouTube(keywords) {
+async function searchYouTube(keywords, originalQuery) {
   try {
     console.log('Searching YouTube with keywords:', keywords);
     const query = encodeURIComponent(keywords.join(' '));
     
-    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+    // Search for both videos and playlists in a single request
+    const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
       params: {
         part: 'snippet',
-        q: query,
-        type: 'video',
+        q: query + ' tutorial OR course OR learn',
+        type: 'video,playlist',
         maxResults: 15,
         key: YOUTUBE_API_KEY,
         relevanceLanguage: 'en',
         order: 'relevance'
       }
+    }).catch(error => {
+      console.error('YouTube API Error:', error.response?.data || error.message);
+      if (error.response?.data?.error?.errors) {
+        console.error('YouTube API Error Details:', error.response.data.error.errors);
+      }
+      throw error;
     });
 
-    console.log(`Found ${response.data.items.length} YouTube videos`);
+    if (!searchResponse.data.items || searchResponse.data.items.length === 0) {
+      console.log('No YouTube results found');
+      return [];
+    }
 
-    // Map videos directly without additional stats to avoid rate limits
-    return response.data.items.map(item => ({
-      type: 'youtube',
-      title: item.snippet.title,
-      description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
-      url: `https://youtube.com/watch?v=${item.id.videoId}`,
-      thumbnail: item.snippet.thumbnails.medium.url,
-      publishedAt: item.snippet.publishedAt
-    }));
+    // Separate videos and playlists
+    const videos = searchResponse.data.items.filter(item => item.id.kind === 'youtube#video');
+    const playlists = searchResponse.data.items.filter(item => item.id.kind === 'youtube#playlist');
+
+    // Get video details
+    const videoIds = videos.map(item => item.id.videoId);
+    let videoDetails = [];
+    if (videoIds.length > 0) {
+      const videoDetailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+        params: {
+          part: 'contentDetails,statistics',
+          id: videoIds.join(','),
+          key: YOUTUBE_API_KEY
+        }
+      }).catch(error => {
+        console.error('Error fetching video details:', error.response?.data || error.message);
+        return { data: { items: [] } };
+      });
+      videoDetails = videoDetailsResponse.data.items || [];
+    }
+
+    // Get playlist details
+    const playlistIds = playlists.map(item => item.id.playlistId);
+    let playlistDetails = [];
+    if (playlistIds.length > 0) {
+      const playlistDetailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/playlists', {
+        params: {
+          part: 'contentDetails,statistics',
+          id: playlistIds.join(','),
+          key: YOUTUBE_API_KEY
+        }
+      }).catch(error => {
+        console.error('Error fetching playlist details:', error.response?.data || error.message);
+        return { data: { items: [] } };
+      });
+      playlistDetails = playlistDetailsResponse.data.items || [];
+    }
+
+    // Process videos
+    const processedVideos = videos.map((item, index) => {
+      const details = videoDetails[index] || {};
+      return {
+        platform: 'youtube',
+        type: 'video',
+        title: item.snippet.title,
+        description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
+        url: `https://youtube.com/watch?v=${item.id.videoId}`,
+        thumbnail: item.snippet.thumbnails?.medium?.url || '',
+        author: item.snippet.channelTitle,
+        publishedAt: item.snippet.publishedAt,
+        views: parseInt(details?.statistics?.viewCount) || 0
+      };
+    });
+
+    // Process playlists
+    const processedPlaylists = playlists.map((item, index) => {
+      const details = playlistDetails[index] || {};
+      return {
+        platform: 'youtube',
+        type: 'playlist',
+        title: item.snippet.title,
+        description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
+        url: `https://youtube.com/playlist?list=${item.id.playlistId}`,
+        thumbnail: item.snippet.thumbnails?.medium?.url || '',
+        author: item.snippet.channelTitle,
+        publishedAt: item.snippet.publishedAt,
+        videoCount: details?.contentDetails?.itemCount || 0
+      };
+    });
+
+    // Combine and sort results
+    const allResults = [...processedPlaylists, ...processedVideos]
+      .sort((a, b) => {
+        // Prioritize playlists slightly
+        if (a.type !== b.type) return a.type === 'playlist' ? -1 : 1;
+        return (b.views || 0) - (a.views || 0);
+      })
+      .slice(0, 10);
+
+    console.log(`Returning ${allResults.length} YouTube results`);
+    return allResults;
   } catch (error) {
-    console.error('Error searching YouTube:', error.response?.data || error.message);
+    console.error('Error in YouTube search:', error.message);
+    if (error.response?.data?.error?.message) {
+      console.error('YouTube API Error Message:', error.response.data.error.message);
+    }
     return [];
   }
 }
@@ -265,11 +350,13 @@ async function searchFreeCodeCamp(keywords, originalQuery) {
     const query = keywords.join(' ');
     const results = [];
 
-    // Search freeCodeCamp News using their public RSS feed
+    // Search freeCodeCamp News using their Ghost API
     try {
-      const newsResponse = await axios.get('https://www.freecodecamp.org/news/search/posts.json', {
+      const newsResponse = await axios.get(`${FCC_NEWS_API}/search`, {
         params: {
-          q: query
+          q: query,
+          limit: 10,
+          fields: 'title,excerpt,url,published_at,primary_author'
         }
       });
 
@@ -278,8 +365,8 @@ async function searchFreeCodeCamp(keywords, originalQuery) {
       if (newsResponse.data && newsResponse.data.posts) {
         results.push(...newsResponse.data.posts.map(post => ({
           title: post.title,
-          description: post.excerpt || post.meta_description || 'No description available',
-          url: `https://www.freecodecamp.org/news/${post.slug}`,
+          description: post.excerpt || 'No description available',
+          url: post.url,
           author: post.primary_author ? post.primary_author.name : 'freeCodeCamp',
           publishedAt: post.published_at,
           type: 'article',
@@ -288,20 +375,15 @@ async function searchFreeCodeCamp(keywords, originalQuery) {
       }
     } catch (error) {
       console.error('Error searching freeCodeCamp News:', error.message);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-      }
     }
 
-    // Search freeCodeCamp Forum
+    // Search freeCodeCamp Forum using Discourse API
     try {
-      const forumResponse = await axios.get('https://forum.freecodecamp.org/search/query', {
+      const forumResponse = await axios.get(FCC_FORUM_API, {
         params: {
-          term: query,
-          include_blurbs: true
-        },
-        headers: {
-          'Accept': 'application/json'
+          q: query,
+          page: 1,
+          per_page: 10
         }
       });
 
@@ -310,10 +392,10 @@ async function searchFreeCodeCamp(keywords, originalQuery) {
       if (forumResponse.data && forumResponse.data.topics) {
         results.push(...forumResponse.data.topics.map(topic => ({
           title: topic.title,
-          description: topic.blurb || 'No description available',
-          url: `https://forum.freecodecamp.org/t/${topic.slug}`,
+          description: topic.excerpt || 'No description available',
+          url: `https://forum.freecodecamp.org/t/${topic.slug}/${topic.id}`,
           author: topic.last_poster_username || 'Unknown',
-          replies: topic.reply_count,
+          replies: topic.posts_count,
           views: topic.views,
           type: 'forum',
           platform: 'freecodecamp'
@@ -321,42 +403,38 @@ async function searchFreeCodeCamp(keywords, originalQuery) {
       }
     } catch (error) {
       console.error('Error searching freeCodeCamp Forum:', error.message);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-      }
     }
 
-    // As a fallback, search their curriculum guide
-    try {
-      const guideResponse = await axios.get('https://api.github.com/search/repositories', {
-        params: {
-          q: `${query} repo:freeCodeCamp/freeCodeCamp path:curriculum/challenges/english`,
-          sort: 'stars',
-          order: 'desc',
-          per_page: 10
-        },
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'Authorization': `token ${process.env.GITHUB_TOKEN}`
+    // Search freeCodeCamp Curriculum on GitHub
+    if (process.env.GITHUB_TOKEN) {
+      try {
+        const guideResponse = await axios.get('https://api.github.com/search/code', {
+          params: {
+            q: `${query} repo:freeCodeCamp/freeCodeCamp path:curriculum/challenges/english`,
+            per_page: 10
+          },
+          headers: {
+            'Accept': 'application/vnd.github.v3+json',
+            'Authorization': `token ${process.env.GITHUB_TOKEN}`
+          }
+        });
+
+        console.log('freeCodeCamp Curriculum response:', guideResponse.data);
+
+        if (guideResponse.data && guideResponse.data.items) {
+          results.push(...guideResponse.data.items.map(item => ({
+            title: item.name.replace(/-/g, ' ').replace('.md', ''),
+            description: 'freeCodeCamp curriculum challenge',
+            url: `https://www.freecodecamp.org/learn/${item.path.split('/').slice(-2).join('/')}`,
+            type: 'curriculum',
+            platform: 'freecodecamp'
+          })));
         }
-      });
-
-      console.log('freeCodeCamp Curriculum response:', guideResponse.data);
-
-      if (guideResponse.data && guideResponse.data.items) {
-        results.push(...guideResponse.data.items.map(item => ({
-          title: item.name.replace(/-/g, ' '),
-          description: item.description || 'A freeCodeCamp curriculum challenge',
-          url: item.html_url.replace('https://github.com/freeCodeCamp/freeCodeCamp/tree/main/', 'https://www.freecodecamp.org/learn/'),
-          type: 'curriculum',
-          platform: 'freecodecamp'
-        })));
+      } catch (error) {
+        console.error('Error searching freeCodeCamp Curriculum:', error.message);
       }
-    } catch (error) {
-      console.error('Error searching freeCodeCamp Curriculum:', error.message);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-      }
+    } else {
+      console.log('Skipping curriculum search - GITHUB_TOKEN not configured');
     }
 
     console.log(`Found ${results.length} results from freeCodeCamp`);
@@ -527,34 +605,53 @@ app.get('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Query is required' });
     }
 
+    console.log('Received search request:', { query, platform });
+    
+    // Analyze query to extract keywords
     const keywords = await analyzeQuery(query);
-    const results = { query };
+    console.log('Extracted keywords:', keywords);
 
-    // Parallel search based on selected platform
     const searchPromises = [];
+    const results = { results: {} };
+
+    // Add search promises based on selected platform
     if (platform === 'all' || platform === 'github') {
-      searchPromises.push(searchGitHub(keywords, query).then(data => ({ github: data })));
+      searchPromises.push(searchGitHub(keywords, query));
     }
     if (platform === 'all' || platform === 'youtube') {
-      searchPromises.push(searchYouTube(keywords).then(data => ({ youtube: data })));
+      searchPromises.push(searchYouTube(keywords, query));
     }
     if (platform === 'all' || platform === 'reddit') {
-      searchPromises.push(searchReddit(keywords, query).then(data => ({ reddit: data })));
+      searchPromises.push(searchReddit(keywords, query));
     }
     if (platform === 'all' || platform === 'archive') {
-      searchPromises.push(searchArchive(keywords, query).then(data => ({ archive: data })));
+      searchPromises.push(searchArchive(keywords, query));
     }
     if (platform === 'all' || platform === 'freecodecamp') {
-      searchPromises.push(searchFreeCodeCamp(keywords, query).then(data => ({ freecodecamp: data })));
+      searchPromises.push(searchFreeCodeCamp(keywords, query));
     }
 
+    // Wait for all searches to complete
     const searchResults = await Promise.all(searchPromises);
-    results.results = searchResults.reduce((acc, curr) => ({ ...acc, ...curr }), {});
+    
+    // Combine all results into a single array
+    const allResults = searchResults.flat();
+    
+    // Rank results if we have more than 5
+    let rankedResults = allResults;
+    if (allResults.length > 5) {
+      const rankedIndices = await rankResources(query, allResults);
+      if (rankedIndices.length > 0) {
+        rankedResults = rankedIndices.map(index => allResults[index]);
+      }
+    }
 
-    res.json(results);
+    // Send the final results
+    res.json(rankedResults);
+
   } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({ error: 'An error occurred during search' });
+    console.error('Error in search endpoint:', error);
+    res.status(500).json({ error: 'Error fetching resources' });
   }
 });
 

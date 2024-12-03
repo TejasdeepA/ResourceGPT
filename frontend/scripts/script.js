@@ -73,218 +73,303 @@ async function handleSearch() {
 function displayResources(data) {
     const resourceList = document.getElementById('resource-list');
     resourceList.innerHTML = ''; // Clear previous results
-  
+
     const results = data.results || {};
     console.log('Results to display:', results);
-    
-    const allResources = [];
-    const selectedPlatform = document.querySelector('.platform-selector form input[name="platform"]:checked').value;
-    console.log('Selected platform for display:', selectedPlatform);
-  
-    // Combine all results into a single array with source information
-    if (results.github && (selectedPlatform === 'all' || selectedPlatform === 'github')) {
-        allResources.push(...results.github.map(repo => ({
-            ...repo,
-            source: 'github',
-            description: truncateText(repo.description, 'github')
-        })));
-    }
-  
-    if (results.reddit && (selectedPlatform === 'all' || selectedPlatform === 'reddit')) {
-        allResources.push(...results.reddit.map(post => ({
-            ...post,
-            source: 'reddit',
-            description: truncateText(post.description, 'reddit')
-        })));
-    }
-  
-    if (results.youtube && (selectedPlatform === 'all' || selectedPlatform === 'youtube')) {
-        allResources.push(...results.youtube.map(video => ({
-            ...video,
-            source: 'youtube',
-            description: truncateText(video.description, 'youtube')
-        })));
-    }
 
-    if (results.archive && (selectedPlatform === 'all' || selectedPlatform === 'archive')) {
-        console.log('Processing archive results:', results.archive);
-        allResources.push(...results.archive.map(item => ({
-            ...item,
-            source: 'archive',
-            description: truncateText(item.description, 'archive')
-        })));
-    }
-
-    if (results.freecodecamp && (selectedPlatform === 'all' || selectedPlatform === 'freecodecamp')) {
-        console.log('Processing freeCodeCamp results:', results.freecodecamp);
-        allResources.push(...results.freecodecamp.map(item => ({
-            ...item,
-            source: 'freecodecamp',
-            description: truncateText(item.description, 'freecodecamp')
-        })));
-    }
-  
-    // Display all resources in a single section
-    if (allResources.length > 0) {
-        const section = document.createElement('div');
-        section.className = 'resource-section';
-        
-        const sectionTitle = document.createElement('h2');
-        sectionTitle.className = 'section-title';
-        sectionTitle.textContent = selectedPlatform === 'all' ? 'Search Results' : `${selectedPlatform.charAt(0).toUpperCase() + selectedPlatform.slice(1)} Results`;
-        section.appendChild(sectionTitle);
-        
-        const resourceItems = document.createElement('div');
-        resourceItems.className = 'resource-items';
-        
-        allResources.forEach((item, index) => {
-            const resourceItem = document.createElement('div');
-            resourceItem.className = 'resource-item';
+    // Sort resources by relevance and quality
+    const sortedResources = data
+        .sort((a, b) => {
+            // Prioritize courses and comprehensive content
+            const aIsCourse = a.type === 'playlist' || a.title.toLowerCase().includes('course');
+            const bIsCourse = b.type === 'playlist' || b.title.toLowerCase().includes('course');
+            if (aIsCourse !== bIsCourse) return aIsCourse ? -1 : 1;
             
-            const rankBadge = document.createElement('div');
-            rankBadge.className = 'rank-badge';
-            rankBadge.textContent = `#${index + 1}`;
-            resourceItem.appendChild(rankBadge);
-            
-            const content = document.createElement('div');
-            content.className = 'resource-content';
-            
-            if (item.thumbnail) {
-                const thumbnail = document.createElement('img');
-                thumbnail.src = item.thumbnail;
-                thumbnail.className = 'resource-thumbnail';
-                content.appendChild(thumbnail);
-            }
-            
-            const title = document.createElement('a');
-            title.href = item.url;
-            title.target = '_blank';
-            title.className = 'resource-title result-link';
-            title.setAttribute('data-source', item.source);
-            title.textContent = item.title;
-            content.appendChild(title);
-            
-            const description = document.createElement('p');
-            description.className = 'resource-description';
-            description.textContent = item.description;
-            content.appendChild(description);
-            
-            // Add badges
-            const badges = getResourceBadges(item);
-            if (badges.length > 0) {
-                content.appendChild(createBadgeElements(badges));
-            }
-            
-            // Add metrics based on source
-            const metrics = document.createElement('div');
-            metrics.className = 'resource-metrics';
-            
-            if (item.source === 'reddit' && item.upvotes !== undefined) {
-                const upvotes = document.createElement('span');
-                upvotes.className = 'metric upvotes';
-                upvotes.innerHTML = `<i class="fas fa-arrow-up"></i> ${formatNumber(item.upvotes)}`;
-                metrics.appendChild(upvotes);
-            }
-            
-            if (item.source === 'youtube') {
-                if (item.views !== undefined) {
-                    const views = document.createElement('span');
-                    views.className = 'metric views';
-                    views.innerHTML = `<i class="fas fa-eye"></i> ${formatNumber(item.views)}`;
-                    metrics.appendChild(views);
-                }
-                if (item.likes !== undefined) {
-                    const likes = document.createElement('span');
-                    likes.className = 'metric likes';
-                    likes.innerHTML = `<i class="fas fa-thumbs-up"></i> ${formatNumber(item.likes)}`;
-                    metrics.appendChild(likes);
+            // Then sort by platform-specific metrics
+            if (a.platform === b.platform) {
+                switch (a.platform) {
+                    case 'GitHub':
+                        return (b.stargazers_count || 0) - (a.stargazers_count || 0);
+                    case 'Reddit':
+                        return (b.ups || 0) - (a.ups || 0);
+                    case 'YouTube':
+                        return (b.views || 0) - (a.views || 0);
+                    default:
+                        return 0;
                 }
             }
-            
-            content.appendChild(metrics);
-            resourceItem.appendChild(content);
-            resourceItems.appendChild(resourceItem);
+            return 0;
         });
+
+    sortedResources.forEach(resource => {
+        const badges = getResourceBadges(resource);
+        const badgeElements = createBadgeElements(badges);
         
-        section.appendChild(resourceItems);
-        resourceList.appendChild(section);
-    } else {
-        resourceList.innerHTML = '<div class="no-results">No resources found. Try a different search query.</div>';
-    }
+        const resourceElement = document.createElement('div');
+        resourceElement.className = 'resource-item';
+        
+        // Create platform icon
+        const platformIcon = getPlatformIcon(resource.platform);
+        
+        resourceElement.innerHTML = `
+            <div class="resource-header">
+                <div class="resource-platform-icon">
+                    ${platformIcon}
+                </div>
+                <div class="resource-content">
+                    <h3 class="resource-title">
+                        <a href="${resource.url}" target="_blank" rel="noopener noreferrer">
+                            ${resource.title}
+                        </a>
+                    </h3>
+                    <div class="badge-container">
+                        ${badgeElements}
+                    </div>
+                </div>
+            </div>
+            <p class="resource-description">${resource.description || 'No description available.'}</p>
+            <div class="resource-meta">
+                ${resource.author ? `<span class="author">By ${resource.author}</span>` : ''}
+                ${resource.platform === 'YouTube' && resource.type === 'playlist' 
+                    ? `<span class="playlist-info">Playlist • ${resource.videoCount} videos</span>` 
+                    : ''}
+                ${resource.platform === 'YouTube' && resource.type === 'video'
+                    ? `<span class="view-count">${formatNumber(resource.views)} views</span>`
+                    : ''}
+            </div>
+        `;
+        resourceList.appendChild(resourceElement);
+    });
+}
+
+// Function to get platform icon
+function getPlatformIcon(platform) {
+    if (!platform) return '<i class="fas fa-link" style="color: #757575; font-size: 24px;"></i>';
+    
+    const icons = {
+        youtube: '<i class="fab fa-youtube" style="color: #FF0000; font-size: 24px;"></i>',
+        github: '<i class="fab fa-github" style="color: #24292e; font-size: 24px;"></i>',
+        reddit: '<i class="fab fa-reddit" style="color: #FF4500; font-size: 24px;"></i>',
+        freecodecamp: '<i class="fab fa-free-code-camp" style="color: #0a0a23; font-size: 24px;"></i>',
+        archive: '<i class="fas fa-archive" style="color: #2196F3; font-size: 24px;"></i>'
+    };
+
+    const platformKey = platform.toLowerCase();
+    return icons[platformKey] || '<i class="fas fa-link" style="color: #757575; font-size: 24px;"></i>';
 }
 
 // Function to determine badges for a resource
 function getResourceBadges(item) {
+    if (!item) return [];
     const badges = [];
     
-    switch (item.source) {
+    // Platform badges with metrics
+    const platform = (item.platform || item.source || '').toLowerCase();
+    switch(platform) {
+        case 'youtube':
+            badges.push({
+                text: 'YouTube',
+                class: 'badge-youtube',
+                icon: 'fab fa-youtube'
+            });
+            if (item.type === 'playlist' || item.videoCount > 1) {
+                badges.push({
+                    text: 'Course',
+                    class: 'badge-course',
+                    icon: 'fas fa-graduation-cap'
+                });
+            }
+            if (item.views) {
+                badges.push({
+                    text: `${formatNumber(item.views)} views`,
+                    class: 'badge-metric',
+                    icon: 'fas fa-eye'
+                });
+            }
+            break;
+            
         case 'github':
-            if (item.stars) badges.push({ text: `${formatNumber(item.stars)} stars`, icon: 'fa-star' });
-            if (item.forks) badges.push({ text: `${formatNumber(item.forks)} forks`, icon: 'fa-code-fork' });
-            if (item.language) badges.push({ text: item.language, icon: 'fa-code' });
+            badges.push({
+                text: 'GitHub',
+                class: 'badge-github',
+                icon: 'fab fa-github'
+            });
+            if (item.stars || item.stargazers_count) {
+                badges.push({
+                    text: `${formatNumber(item.stars || item.stargazers_count)} stars`,
+                    class: 'badge-metric',
+                    icon: 'fas fa-star'
+                });
+            }
+            if (item.language) {
+                badges.push({
+                    text: item.language,
+                    class: 'badge-language',
+                    icon: 'fas fa-code'
+                });
+            }
             break;
             
         case 'reddit':
-            if (item.score) badges.push({ text: `${formatNumber(item.score)} points`, icon: 'fa-arrow-up' });
-            if (item.numComments) badges.push({ text: `${formatNumber(item.numComments)} comments`, icon: 'fa-comments' });
-            if (item.subreddit) badges.push({ text: `r/${item.subreddit}`, icon: 'fa-reddit' });
+            badges.push({
+                text: 'Reddit',
+                class: 'badge-reddit',
+                icon: 'fab fa-reddit'
+            });
+            if (item.score || item.ups) {
+                badges.push({
+                    text: `${formatNumber(item.score || item.ups)} upvotes`,
+                    class: 'badge-metric',
+                    icon: 'fas fa-arrow-up'
+                });
+            }
+            if (item.numComments) {
+                badges.push({
+                    text: `${formatNumber(item.numComments)} comments`,
+                    class: 'badge-metric',
+                    icon: 'fas fa-comments'
+                });
+            }
             break;
             
-        case 'youtube':
-            if (item.views) badges.push({ text: `${formatNumber(item.views)} views`, icon: 'fa-eye' });
-            if (item.duration) badges.push({ text: item.duration, icon: 'fa-clock' });
-            if (item.channel) badges.push({ text: item.channel, icon: 'fa-youtube' });
-            break;
-
-        case 'archive':
-            if (item.downloads) badges.push({ text: `${formatNumber(item.downloads)} downloads`, icon: 'fa-download' });
-            if (item.year) badges.push({ text: item.year, icon: 'fa-calendar' });
-            if (item.mediaType) badges.push({ text: item.mediaType, icon: 'fa-file' });
-            break;
-
         case 'freecodecamp':
+            badges.push({
+                text: 'freeCodeCamp',
+                class: 'badge-freecodecamp',
+                icon: 'fab fa-free-code-camp'
+            });
             if (item.type === 'article') {
-                badges.push({ text: 'Article', icon: 'fa-newspaper' });
+                badges.push({
+                    text: 'Article',
+                    class: 'badge-type',
+                    icon: 'fas fa-newspaper'
+                });
                 if (item.publishedAt) {
                     const date = new Date(item.publishedAt);
-                    badges.push({ text: date.toLocaleDateString(), icon: 'fa-calendar' });
+                    badges.push({
+                        text: date.toLocaleDateString(),
+                        class: 'badge-date',
+                        icon: 'fas fa-calendar'
+                    });
                 }
             } else if (item.type === 'forum') {
-                badges.push({ text: 'Forum', icon: 'fa-comments' });
-                if (item.replies) badges.push({ text: `${formatNumber(item.replies)} replies`, icon: 'fa-reply' });
-                if (item.views) badges.push({ text: `${formatNumber(item.views)} views`, icon: 'fa-eye' });
+                badges.push({
+                    text: 'Forum',
+                    class: 'badge-type',
+                    icon: 'fas fa-comments'
+                });
+                if (item.replies) {
+                    badges.push({
+                        text: `${formatNumber(item.replies)} replies`,
+                        class: 'badge-metric',
+                        icon: 'fas fa-reply'
+                    });
+                }
+                if (item.views) {
+                    badges.push({
+                        text: `${formatNumber(item.views)} views`,
+                        class: 'badge-metric',
+                        icon: 'fas fa-eye'
+                    });
+                }
             } else if (item.type === 'curriculum') {
-                badges.push({ text: 'Tutorial', icon: 'fa-graduation-cap' });
+                badges.push({
+                    text: 'Tutorial',
+                    class: 'badge-tutorial',
+                    icon: 'fas fa-graduation-cap'
+                });
             }
-            if (item.author) badges.push({ text: item.author, icon: 'fa-user' });
+            break;
+            
+        case 'internet-archive':
+        case 'archive':
+            badges.push({
+                text: 'Internet Archive',
+                class: 'badge-archive',
+                icon: 'fas fa-archive'
+            });
+            if (item.downloads) {
+                badges.push({
+                    text: `${formatNumber(item.downloads)} downloads`,
+                    class: 'badge-metric',
+                    icon: 'fas fa-download'
+                });
+            }
+            if (item.year) {
+                badges.push({
+                    text: item.year,
+                    class: 'badge-date',
+                    icon: 'fas fa-calendar'
+                });
+            }
+            if (item.mediaType) {
+                badges.push({
+                    text: item.mediaType,
+                    class: 'badge-type',
+                    icon: 'fas fa-file'
+                });
+            }
             break;
     }
-    
+
+    // Content type badges
+    if (item.type === 'tutorial' || item.title.toLowerCase().includes('tutorial')) {
+        badges.push({
+            text: 'Tutorial',
+            class: 'badge-tutorial',
+            icon: 'fas fa-chalkboard-teacher'
+        });
+    }
+
+    if (item.type === 'course' || item.title.toLowerCase().includes('course')) {
+        badges.push({
+            text: 'Course',
+            class: 'badge-course',
+            icon: 'fas fa-graduation-cap'
+        });
+    }
+
+    // Beginner friendly badge
+    const beginnerTerms = ['beginner', 'basics', 'introduction', 'getting started', '101', 'fundamental'];
+    if (beginnerTerms.some(term => 
+        (item.title && typeof item.title === 'string' && item.title.toLowerCase().includes(term)) || 
+        (item.description && typeof item.description === 'string' && item.description.toLowerCase().includes(term))
+    )) {
+        badges.push({
+            text: 'Beginner Friendly',
+            class: 'badge-beginner',
+            icon: 'fas fa-seedling'
+        });
+    }
+
+    // Trending badge based on metrics
+    const isTrending = (
+        (item.platform === 'GitHub' && (item.stars || item.stargazers_count) > 1000) ||
+        (item.platform === 'Reddit' && (item.score || item.ups) > 100) ||
+        (item.platform === 'YouTube' && item.views > 10000) ||
+        (item.platform === 'freeCodeCamp' && item.views > 5000) ||
+        (item.platform === 'Internet Archive' && item.downloads > 1000)
+    );
+
+    if (isTrending) {
+        badges.push({
+            text: 'Trending',
+            class: 'badge-trending',
+            icon: 'fas fa-fire'
+        });
+    }
+
     return badges;
 }
 
 // Function to create badge elements
 function createBadgeElements(badges) {
-    const badgesContainer = document.createElement('div');
-    badgesContainer.className = 'resource-badges';
-    
-    badges.forEach(badge => {
-        const badgeElement = document.createElement('span');
-        badgeElement.className = `resource-badge badge-${badge.type}`;
-        badgeElement.innerHTML = `<i class="fas fa-${badge.icon}"></i> ${badge.text}`;
-        badgesContainer.appendChild(badgeElement);
-    });
-    
-    return badgesContainer;
-}
-
-// Function to truncate text with character limit
-function truncateText(text, source = '') {
-    if (!text) return '';
-    // Shorter limit for GitHub descriptions
-    const maxLength = source === 'github' ? 60 : 100;
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength).trim().replace(/[.,;]?\s+\S*$/, '') + '...';
+    return badges.map(badge => `
+        <span class="badge ${badge.class}">
+            <i class="${badge.icon}"></i>
+            ${badge.text}
+        </span>
+    `).join('');
 }
 
 // Helper function to format numbers

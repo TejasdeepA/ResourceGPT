@@ -80,6 +80,119 @@ async function fetchStackOverflowResources(query) {
  });
  });
 }
+// Function to fetch resources from YouTube with improved relevance
+async function fetchYouTubeResources(query) {
+  const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+  
+  // Enhance query for educational content
+  const educationalQuery = `${query} (course OR tutorial OR playlist OR complete guide)`;
+  
+  try {
+    // First search for playlists
+    const playlistResponse = await axios.get(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(educationalQuery)}&type=playlist&maxResults=10&key=${YOUTUBE_API_KEY}`
+    );
+
+    // Then search for videos with longer duration
+    const videoResponse = await axios.get(
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(educationalQuery)}&type=video&videoDuration=long&maxResults=10&key=${YOUTUBE_API_KEY}`
+    );
+
+    // Combine and process results
+    const playlists = playlistResponse.data.items || [];
+    const videos = videoResponse.data.items || [];
+    
+    // Get video durations and playlist details in parallel
+    const videoIds = videos.map(item => item.id.videoId).join(',');
+    const playlistIds = playlists.map(item => item.id.playlistId).join(',');
+    
+    const [videoDetails, playlistDetails] = await Promise.all([
+      videoIds ? axios.get(
+        `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics&id=${videoIds}&key=${YOUTUBE_API_KEY}`
+      ) : { data: { items: [] } },
+      playlistIds ? axios.get(
+        `https://www.googleapis.com/youtube/v3/playlists?part=contentDetails,snippet&id=${playlistIds}&key=${YOUTUBE_API_KEY}`
+      ) : { data: { items: [] } }
+    ]);
+
+    // Process playlists
+    const processedPlaylists = playlists.map((item, index) => {
+      const details = playlistDetails.data.items[index];
+      return {
+        platform: 'YouTube',
+        type: 'playlist',
+        title: item.snippet.title,
+        description: item.snippet.description,
+        url: `https://www.youtube.com/playlist?list=${item.id.playlistId}`,
+        videoCount: details?.contentDetails?.itemCount || 0,
+        channelTitle: item.snippet.channelTitle,
+        publishedAt: item.snippet.publishedAt
+      };
+    });
+
+    // Process videos
+    const processedVideos = videos.map((item, index) => {
+      const details = videoDetails.data.items[index];
+      return {
+        platform: 'YouTube',
+        type: 'video',
+        title: item.snippet.title,
+        description: item.snippet.description,
+        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+        duration: details?.contentDetails?.duration || 'N/A',
+        views: parseInt(details?.statistics?.viewCount) || 0,
+        channelTitle: item.snippet.channelTitle,
+        publishedAt: item.snippet.publishedAt
+      };
+    });
+
+    // Filter and sort results
+    const allResults = [...processedPlaylists, ...processedVideos]
+      .filter(item => {
+        // Filter out irrelevant content
+        const relevanceScore = calculateYouTubeRelevance(item, query);
+        return relevanceScore > 0.6;
+      })
+      .sort((a, b) => {
+        // Prioritize playlists and longer content
+        if (a.type !== b.type) return a.type === 'playlist' ? -1 : 1;
+        if (a.type === 'playlist') return b.videoCount - a.videoCount;
+        return b.views - a.views;
+      })
+      .slice(0, 10);
+
+    return allResults;
+  } catch (error) {
+    console.error('Error fetching YouTube resources:', error);
+    return [];
+  }
+}
+
+// Helper function to calculate YouTube content relevance
+function calculateYouTubeRelevance(item, query) {
+  const queryWords = query.toLowerCase().split(' ');
+  const titleWords = item.title.toLowerCase();
+  const descWords = item.description.toLowerCase();
+  
+  let score = 0;
+  
+  // Check title relevance
+  if (queryWords.every(word => titleWords.includes(word))) score += 0.4;
+  else if (queryWords.some(word => titleWords.includes(word))) score += 0.2;
+  
+  // Check description relevance
+  if (queryWords.every(word => descWords.includes(word))) score += 0.3;
+  else if (queryWords.some(word => descWords.includes(word))) score += 0.1;
+  
+  // Bonus for educational indicators
+  const educationalTerms = ['tutorial', 'course', 'learn', 'guide', 'complete', 'introduction', 'beginners'];
+  if (educationalTerms.some(term => titleWords.includes(term))) score += 0.2;
+  
+  // Bonus for playlists with multiple videos
+  if (item.type === 'playlist' && item.videoCount > 5) score += 0.1;
+  
+  return score;
+}
 // Function to check spelling and correct query
 function correctSpelling(query) {
  const words = query.split(' ');
@@ -113,7 +226,8 @@ router.get('/search', async (req, res) => {
  const githubResources = await fetchGitHubResources(query);
  const redditResources = await fetchRedditResources(query);
  const stackOverflowResources = await fetchStackOverflowResources(query);
- const allResources = [...githubResources, ...redditResources, ...stackOverflowResources];
+ const youtubeResources = await fetchYouTubeResources(query);
+ const allResources = [...githubResources, ...redditResources, ...stackOverflowResources, ...youtubeResources];
  res.json(allResources);
  } catch (error) {
  res.status(500).json({ error: 'Error fetching resources' });
