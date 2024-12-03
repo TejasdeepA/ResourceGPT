@@ -96,35 +96,34 @@ async function rankResources(query, resources) {
 // Function to search GitHub
 async function searchGitHub(keywords, originalQuery) {
   try {
-    const query = keywords.join('+');
-    const response = await axios.get(`${GITHUB_API_URL}?q=${query}&sort=stars&per_page=50`, {
-      headers: {
-        'Authorization': `Bearer ${GITHUB_TOKEN}`,
+    console.log('Searching GitHub with keywords:', keywords);
+    const query = encodeURIComponent(keywords.join(' '));
+    const response = await axios.get(`${GITHUB_API_URL}?q=${query}&sort=stars&per_page=15`, {
+      headers: GITHUB_TOKEN ? {
+        'Authorization': `token ${GITHUB_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json'
+      } : {
         'Accept': 'application/vnd.github.v3+json'
       }
     });
 
-    // Filter and check relevance for each repository
-    const relevantRepos = [];
-    for (const repo of response.data.items) {
-      if (await checkGitHubRelevance(repo, originalQuery, GEMINI_API_KEY)) {
-        relevantRepos.push({
-          type: 'github',
-          title: repo.full_name,
-          description: repo.description,
-          url: repo.html_url,
-          stars: repo.stargazers_count,
-          topics: repo.topics || [],
-          created_at: repo.created_at,
-          language: repo.language,
-          forks: repo.forks_count
-        });
-      }
-      if (relevantRepos.length >= 15) break; // Increased from 5 to 15
-    }
-    return relevantRepos;
+    console.log(`Found ${response.data.items.length} GitHub repositories`);
+    
+    // Map repositories directly without relevance check due to rate limit
+    const repos = response.data.items.map(repo => ({
+      type: 'github',
+      title: repo.full_name,
+      description: repo.description || 'No description available',
+      url: repo.html_url,
+      stars: repo.stargazers_count,
+      topics: repo.topics || [],
+      language: repo.language,
+      forks: repo.forks_count
+    }));
+
+    return repos.slice(0, 15);
   } catch (error) {
-    console.error('Error searching GitHub:', error);
+    console.error('Error searching GitHub:', error.response?.data || error.message);
     return [];
   }
 }
@@ -132,52 +131,34 @@ async function searchGitHub(keywords, originalQuery) {
 // Function to search YouTube
 async function searchYouTube(keywords) {
   try {
-    const query = keywords.join(' ');
-    const response = await axios.get(`https://www.googleapis.com/youtube/v3/search`, {
+    console.log('Searching YouTube with keywords:', keywords);
+    const query = encodeURIComponent(keywords.join(' '));
+    
+    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
       params: {
         part: 'snippet',
         q: query,
         type: 'video',
-        maxResults: 15, // Increased from 10
-        key: process.env.YOUTUBE_API_KEY,
+        maxResults: 15,
+        key: YOUTUBE_API_KEY,
         relevanceLanguage: 'en',
-        videoType: 'any',
         order: 'relevance'
       }
     });
 
-    // Get video statistics in a separate call
-    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
-    const statsResponse = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
-      params: {
-        part: 'statistics,contentDetails',
-        id: videoIds,
-        key: process.env.YOUTUBE_API_KEY
-      }
-    });
+    console.log(`Found ${response.data.items.length} YouTube videos`);
 
-    // Create a map of video stats
-    const videoStats = {};
-    statsResponse.data.items.forEach(item => {
-      videoStats[item.id] = {
-        ...item.statistics,
-        duration: item.contentDetails.duration
-      };
-    });
-
+    // Map videos directly without additional stats to avoid rate limits
     return response.data.items.map(item => ({
+      type: 'youtube',
       title: item.snippet.title,
+      description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
       url: `https://youtube.com/watch?v=${item.id.videoId}`,
-      description: truncateText(item.snippet.description, 150),
-      thumbnail: item.snippet.thumbnails.default.url,
-      views: videoStats[item.id.videoId]?.viewCount || 0,
-      likes: videoStats[item.id.videoId]?.likeCount || 0,
-      duration: videoStats[item.id.videoId]?.duration || '',
-      publishedAt: item.snippet.publishedAt,
-      type: 'youtube'
+      thumbnail: item.snippet.thumbnails.medium.url,
+      publishedAt: item.snippet.publishedAt
     }));
   } catch (error) {
-    console.error('Error searching YouTube:', error);
+    console.error('Error searching YouTube:', error.response?.data || error.message);
     return [];
   }
 }
@@ -226,6 +207,114 @@ async function searchReddit(keywords, originalQuery) {
   }
 }
 
+// Function to get content preview
+async function getContentPreview(url, source) {
+    try {
+        console.log(`Fetching preview for ${url} from ${source}`);
+        
+        if (source === 'youtube') {
+            const videoId = url.split('v=')[1]?.split('&')[0];
+            if (!videoId) {
+                throw new Error('Invalid YouTube URL');
+            }
+            
+            const response = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
+                params: {
+                    part: 'snippet',
+                    id: videoId,
+                    key: YOUTUBE_API_KEY
+                }
+            });
+            
+            if (!response.data.items || response.data.items.length === 0) {
+                throw new Error('Video not found');
+            }
+            
+            const video = response.data.items[0];
+            return {
+                title: video.snippet.title,
+                summary: video.snippet.description?.slice(0, 200) + '...'
+            };
+        } 
+        else if (source === 'github') {
+            const repoPath = url.split('github.com/')[1];
+            if (!repoPath) {
+                throw new Error('Invalid GitHub URL');
+            }
+            
+            const response = await axios.get(`https://api.github.com/repos/${repoPath}`, {
+                headers: GITHUB_TOKEN ? { 
+                    Authorization: `token ${GITHUB_TOKEN}` 
+                } : {}
+            });
+            
+            return {
+                title: response.data.full_name,
+                summary: response.data.description || 'No description available'
+            };
+        }
+        else if (source === 'reddit') {
+            const postId = url.split('comments/')[1]?.split('/')[0];
+            if (!postId) {
+                throw new Error('Invalid Reddit URL');
+            }
+            
+            const token = await getRedditAccessToken();
+            const response = await axios.get(`https://oauth.reddit.com/api/info?id=t3_${postId}`, {
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                    'User-Agent': 'ResourceGPT/1.0.0'
+                }
+            });
+            
+            if (!response.data.data.children || response.data.data.children.length === 0) {
+                throw new Error('Reddit post not found');
+            }
+            
+            const post = response.data.data.children[0].data;
+            return {
+                title: post.title,
+                summary: post.selftext 
+                    ? post.selftext.slice(0, 200) + '...' 
+                    : 'No content available'
+            };
+        }
+        
+        return {
+            title: 'Preview',
+            summary: 'Preview not available for this type of content'
+        };
+    } catch (error) {
+        console.error('Error getting content preview:', error.message);
+        throw new Error(`Failed to load preview: ${error.message}`);
+    }
+}
+
+// Preview endpoint
+app.post('/api/preview', async (req, res) => {
+    try {
+        const { url, source } = req.body;
+        console.log('Preview request received:', { url, source });
+        
+        if (!url) {
+            return res.status(400).json({ 
+                error: 'URL is required',
+                message: 'Please provide a valid URL'
+            });
+        }
+        
+        const preview = await getContentPreview(url, source);
+        console.log('Preview generated successfully:', preview);
+        res.json(preview);
+    } catch (error) {
+        console.error('Preview error:', error);
+        res.status(500).json({ 
+            error: 'Failed to get preview',
+            message: error.message || 'An unexpected error occurred'
+        });
+    }
+});
+
 // Helper function to truncate text
 function truncateText(text, maxLength) {
   if (text.length <= maxLength) return text;
@@ -240,8 +329,15 @@ app.get('/api/search', async (req, res) => {
       return res.status(400).json({ error: 'Query parameter is required' });
     }
 
-    // Analyze query with Gemini to extract relevant keywords
-    const keywords = await analyzeQuery(query);
+    console.log('Search request received for query:', query);
+    
+    // Use simple keyword extraction instead of Gemini due to rate limiting
+    const keywords = query.toLowerCase()
+                         .replace(/[^\w\s]/g, '')
+                         .split(/\s+/)
+                         .filter(word => word.length > 2);
+    
+    console.log('Extracted keywords:', keywords);
 
     // Fetch results from all platforms concurrently
     const [githubResults, redditResults, youtubeResults] = await Promise.all([
@@ -249,6 +345,12 @@ app.get('/api/search', async (req, res) => {
       searchReddit(keywords, query),
       searchYouTube(keywords)
     ]);
+
+    console.log('Results found:', {
+      github: githubResults.length,
+      reddit: redditResults.length,
+      youtube: youtubeResults.length
+    });
 
     // Combine all results
     const allResults = {
@@ -260,7 +362,10 @@ app.get('/api/search', async (req, res) => {
     res.json({ results: allResults });
   } catch (error) {
     console.error('Error in search endpoint:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 

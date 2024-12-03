@@ -135,7 +135,8 @@ function displayResources(data) {
             const title = document.createElement('a');
             title.href = item.url;
             title.target = '_blank';
-            title.className = 'resource-title';
+            title.className = 'resource-title result-link';
+            title.setAttribute('data-source', item.source);
             title.textContent = item.title;
             content.appendChild(title);
             
