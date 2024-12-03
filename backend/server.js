@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const { checkGitHubRelevance, checkRedditRelevance } = require('./utils/relevanceChecker');
+const { addTag, getResourceTags, removeTag } = require('./utils/tagManager');
 require('dotenv').config();
 
 const app = express();
@@ -312,6 +313,44 @@ app.post('/api/preview', async (req, res) => {
             error: 'Failed to get preview',
             message: error.message || 'An unexpected error occurred'
         });
+    }
+});
+
+// Tag management endpoints
+app.post('/api/tags', async (req, res) => {
+    try {
+        const { resourceId, tag } = req.body;
+        if (!resourceId || !tag) {
+            return res.status(400).json({ error: 'Resource ID and tag are required' });
+        }
+        
+        const result = addTag(resourceId, tag);
+        res.json(result);
+    } catch (error) {
+        console.error('Error adding tag:', error);
+        res.status(500).json({ error: 'Failed to add tag' });
+    }
+});
+
+app.get('/api/tags/:resourceId', async (req, res) => {
+    try {
+        const { resourceId } = req.params;
+        const result = getResourceTags(resourceId);
+        res.json(result);
+    } catch (error) {
+        console.error('Error getting tags:', error);
+        res.status(500).json({ error: 'Failed to get tags' });
+    }
+});
+
+app.delete('/api/tags/:resourceId/:tag', async (req, res) => {
+    try {
+        const { resourceId, tag } = req.params;
+        const result = removeTag(resourceId, tag);
+        res.json(result);
+    } catch (error) {
+        console.error('Error removing tag:', error);
+        res.status(500).json({ error: 'Failed to remove tag' });
     }
 });
 

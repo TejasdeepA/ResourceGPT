@@ -145,6 +145,12 @@ function displayResources(data) {
             description.textContent = item.description;
             content.appendChild(description);
             
+            // Add badges
+            const badges = getResourceBadges(item);
+            if (badges.length > 0) {
+                content.appendChild(createBadgeElements(badges));
+            }
+            
             // Add metrics based on source
             const metrics = document.createElement('div');
             metrics.className = 'resource-metrics';
@@ -181,6 +187,97 @@ function displayResources(data) {
     } else {
         resourceList.innerHTML = '<div class="no-results">No resources found. Try a different search query.</div>';
     }
+}
+
+// Function to determine badges for a resource
+function getResourceBadges(item) {
+    let score = 0;
+    
+    // Base score calculation
+    if (item.description) {
+        const wordCount = item.description.split(/\s+/).length;
+        score += Math.floor(wordCount / 200); // Add 1 point per 200 words
+    }
+
+    // Title-based scoring
+    const titleLower = item.title.toLowerCase();
+    if (/beginner|start|basic|introduction|tutorial|learn|easy/i.test(titleLower)) {
+        score -= 3;
+    }
+    if (/advanced|expert|deep dive|comprehensive|mastery|professional/i.test(titleLower)) {
+        score += 3;
+    }
+
+    // Platform-specific scoring
+    switch (item.source) {
+        case 'youtube':
+            if (item.duration) {
+                score += Math.floor(item.duration / 600); // Add 1 point per 10 minutes
+            }
+            if (item.views) {
+                if (item.views > 500000) score += 3;
+                else if (item.views > 100000) score += 2;
+            }
+            break;
+
+        case 'github':
+            if (item.stars) {
+                if (item.stars > 10000) score += 3;
+                else if (item.stars > 5000) score += 2;
+                else if (item.stars > 1000) score += 1;
+            }
+            break;
+
+        case 'reddit':
+            if (item.upvotes) {
+                if (item.upvotes > 5000) score += 3;
+                else if (item.upvotes > 1000) score += 2;
+                else if (item.upvotes > 500) score += 1;
+            }
+            break;
+    }
+
+    // Determine badge based on final score
+    if (score > 5) {
+        return [{
+            type: 'in-depth',
+            icon: 'square',
+            text: 'In-Depth'
+        }];
+    } else if (score < 0) {
+        return [{
+            type: 'beginner',
+            icon: 'circle',
+            text: 'Beginner-Friendly'
+        }];
+    } else if (
+        (item.source === 'youtube' && item.views > 500000) ||
+        (item.source === 'github' && item.stars > 10000) ||
+        (item.source === 'reddit' && item.upvotes > 5000)
+    ) {
+        return [{
+            type: 'trending',
+            icon: 'fire',
+            text: 'Trending'
+        }];
+    }
+
+    return []; // No badge if no clear category
+}
+
+// Function to create badge elements
+function createBadgeElements(badges) {
+    const badgesContainer = document.createElement('div');
+    badgesContainer.className = 'resource-badges';
+    
+    badges.forEach(badge => {
+        const badgeElement = document.createElement('span');
+        badgeElement.className = `resource-badge badge-${badge.type}`;
+        badgeElement.innerHTML = `<i class="fas fa-${badge.icon}"></i> ${badge.text}`;
+        badgesContainer.appendChild(badgeElement);
+    });
+    
+    return badgesContainer;
 }
 
 // Function to truncate text with character limit
