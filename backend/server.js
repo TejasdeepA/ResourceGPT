@@ -22,6 +22,7 @@ const GITHUB_API_URL = 'https://api.github.com/search/repositories';
 const YOUTUBE_API_URL = 'https://www.googleapis.com/youtube/v3/search';
 const REDDIT_TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
 const REDDIT_SEARCH_URL = 'https://oauth.reddit.com/search';
+const ARCHIVE_API_URL = 'https://archive.org/advancedsearch.php';
 
 // Function to get Reddit access token
 async function getRedditAccessToken() {
@@ -208,6 +209,52 @@ async function searchReddit(keywords, originalQuery) {
   }
 }
 
+// Function to search Internet Archive
+async function searchArchive(keywords, originalQuery) {
+  try {
+    console.log('Searching Internet Archive with keywords:', keywords);
+    const query = keywords.join(' ');
+    
+    const response = await axios.get(ARCHIVE_API_URL, {
+      params: {
+        q: query,
+        fl: 'identifier,title,description,creator,year,downloads,mediatype',
+        output: 'json',
+        rows: 20,
+        sort: '-downloads',
+        page: 1
+      }
+    });
+
+    console.log('Internet Archive API Response:', JSON.stringify(response.data, null, 2));
+
+    if (!response.data || !response.data.response || !response.data.response.docs) {
+      console.log('No results from Internet Archive');
+      return [];
+    }
+
+    const results = response.data.response.docs.map(item => ({
+      title: item.title || 'No Title',
+      description: item.description || 'No description available',
+      url: `https://archive.org/details/${item.identifier}`,
+      author: item.creator ? (Array.isArray(item.creator) ? item.creator[0] : item.creator) : 'Unknown',
+      year: item.year || 'N/A',
+      downloads: item.downloads || 0,
+      mediaType: item.mediatype || 'unknown',
+      platform: 'archive'
+    }));
+
+    console.log(`Found ${results.length} results from Internet Archive`);
+    return results;
+  } catch (error) {
+    console.error('Error searching Internet Archive:', error);
+    if (error.response) {
+      console.error('Error response:', error.response.data);
+    }
+    return [];
+  }
+}
+
 // Function to get content preview
 async function getContentPreview(url, source) {
     try {
@@ -363,48 +410,36 @@ function truncateText(text, maxLength) {
 // Main search endpoint
 app.get('/api/search', async (req, res) => {
   try {
-    const { query } = req.query;
+    const { query, platform } = req.query;
     if (!query) {
-      return res.status(400).json({ error: 'Query parameter is required' });
+      return res.status(400).json({ error: 'Query is required' });
     }
 
-    console.log('Search request received for query:', query);
-    
-    // Use simple keyword extraction instead of Gemini due to rate limiting
-    const keywords = query.toLowerCase()
-                         .replace(/[^\w\s]/g, '')
-                         .split(/\s+/)
-                         .filter(word => word.length > 2);
-    
-    console.log('Extracted keywords:', keywords);
+    const keywords = await analyzeQuery(query);
+    const results = { query };
 
-    // Fetch results from all platforms concurrently
-    const [githubResults, redditResults, youtubeResults] = await Promise.all([
-      searchGitHub(keywords, query),
-      searchReddit(keywords, query),
-      searchYouTube(keywords)
-    ]);
+    // Parallel search based on selected platform
+    const searchPromises = [];
+    if (platform === 'all' || platform === 'github') {
+      searchPromises.push(searchGitHub(keywords, query).then(data => ({ github: data })));
+    }
+    if (platform === 'all' || platform === 'youtube') {
+      searchPromises.push(searchYouTube(keywords).then(data => ({ youtube: data })));
+    }
+    if (platform === 'all' || platform === 'reddit') {
+      searchPromises.push(searchReddit(keywords, query).then(data => ({ reddit: data })));
+    }
+    if (platform === 'all' || platform === 'archive') {
+      searchPromises.push(searchArchive(keywords, query).then(data => ({ archive: data })));
+    }
 
-    console.log('Results found:', {
-      github: githubResults.length,
-      reddit: redditResults.length,
-      youtube: youtubeResults.length
-    });
+    const searchResults = await Promise.all(searchPromises);
+    results.results = searchResults.reduce((acc, curr) => ({ ...acc, ...curr }), {});
 
-    // Combine all results
-    const allResults = {
-      github: githubResults,
-      reddit: redditResults,
-      youtube: youtubeResults
-    };
-
-    res.json({ results: allResults });
+    res.json(results);
   } catch (error) {
-    console.error('Error in search endpoint:', error);
-    res.status(500).json({ 
-      error: 'Internal server error',
-      message: error.message 
-    });
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'An error occurred during search' });
   }
 });
 

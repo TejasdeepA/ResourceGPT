@@ -54,11 +54,14 @@ async function handleSearch() {
     try {
         const form = document.querySelector('.platform-selector form');
         const selectedPlatform = form.querySelector('input[name="platform"]:checked').value;
+        console.log('Selected platform:', selectedPlatform);
+        
         const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}&platform=${selectedPlatform}`);
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
         const data = await response.json();
+        console.log('Search response:', data);
         displayResources(data);
     } catch (error) {
         console.error('Error fetching resources:', error);
@@ -72,8 +75,11 @@ function displayResources(data) {
     resourceList.innerHTML = ''; // Clear previous results
   
     const results = data.results || {};
+    console.log('Results to display:', results);
+    
     const allResources = [];
     const selectedPlatform = document.querySelector('.platform-selector form input[name="platform"]:checked').value;
+    console.log('Selected platform for display:', selectedPlatform);
   
     // Combine all results into a single array with source information
     if (results.github && (selectedPlatform === 'all' || selectedPlatform === 'github')) {
@@ -97,6 +103,15 @@ function displayResources(data) {
             ...video,
             source: 'youtube',
             description: truncateText(video.description, 'youtube')
+        })));
+    }
+
+    if (results.archive && (selectedPlatform === 'all' || selectedPlatform === 'archive')) {
+        console.log('Processing archive results:', results.archive);
+        allResources.push(...results.archive.map(item => ({
+            ...item,
+            source: 'archive',
+            description: truncateText(item.description, 'archive')
         })));
     }
   
@@ -191,78 +206,35 @@ function displayResources(data) {
 
 // Function to determine badges for a resource
 function getResourceBadges(item) {
-    let score = 0;
+    const badges = [];
     
-    // Base score calculation
-    if (item.description) {
-        const wordCount = item.description.split(/\s+/).length;
-        score += Math.floor(wordCount / 200); // Add 1 point per 200 words
-    }
-
-    // Title-based scoring
-    const titleLower = item.title.toLowerCase();
-    if (/beginner|start|basic|introduction|tutorial|learn|easy/i.test(titleLower)) {
-        score -= 3;
-    }
-    if (/advanced|expert|deep dive|comprehensive|mastery|professional/i.test(titleLower)) {
-        score += 3;
-    }
-
-    // Platform-specific scoring
     switch (item.source) {
-        case 'youtube':
-            if (item.duration) {
-                score += Math.floor(item.duration / 600); // Add 1 point per 10 minutes
-            }
-            if (item.views) {
-                if (item.views > 500000) score += 3;
-                else if (item.views > 100000) score += 2;
-            }
-            break;
-
         case 'github':
-            if (item.stars) {
-                if (item.stars > 10000) score += 3;
-                else if (item.stars > 5000) score += 2;
-                else if (item.stars > 1000) score += 1;
-            }
+            if (item.stars) badges.push({ text: `${formatNumber(item.stars)} stars`, icon: 'fa-star' });
+            if (item.forks) badges.push({ text: `${formatNumber(item.forks)} forks`, icon: 'fa-code-fork' });
+            if (item.language) badges.push({ text: item.language, icon: 'fa-code' });
             break;
-
+            
         case 'reddit':
-            if (item.upvotes) {
-                if (item.upvotes > 5000) score += 3;
-                else if (item.upvotes > 1000) score += 2;
-                else if (item.upvotes > 500) score += 1;
-            }
+            if (item.score) badges.push({ text: `${formatNumber(item.score)} points`, icon: 'fa-arrow-up' });
+            if (item.numComments) badges.push({ text: `${formatNumber(item.numComments)} comments`, icon: 'fa-comments' });
+            if (item.subreddit) badges.push({ text: `r/${item.subreddit}`, icon: 'fa-reddit' });
+            break;
+            
+        case 'youtube':
+            if (item.views) badges.push({ text: `${formatNumber(item.views)} views`, icon: 'fa-eye' });
+            if (item.duration) badges.push({ text: item.duration, icon: 'fa-clock' });
+            if (item.channel) badges.push({ text: item.channel, icon: 'fa-youtube' });
+            break;
+
+        case 'archive':
+            if (item.downloads) badges.push({ text: `${formatNumber(item.downloads)} downloads`, icon: 'fa-download' });
+            if (item.year) badges.push({ text: item.year, icon: 'fa-calendar' });
+            if (item.mediaType) badges.push({ text: item.mediaType, icon: 'fa-file' });
             break;
     }
-
-    // Determine badge based on final score
-    if (score > 5) {
-        return [{
-            type: 'in-depth',
-            icon: 'square',
-            text: 'In-Depth'
-        }];
-    } else if (score < 0) {
-        return [{
-            type: 'beginner',
-            icon: 'circle',
-            text: 'Beginner-Friendly'
-        }];
-    } else if (
-        (item.source === 'youtube' && item.views > 500000) ||
-        (item.source === 'github' && item.stars > 10000) ||
-        (item.source === 'reddit' && item.upvotes > 5000)
-    ) {
-        return [{
-            type: 'trending',
-            icon: 'fire',
-            text: 'Trending'
-        }];
-    }
-
-    return []; // No badge if no clear category
+    
+    return badges;
 }
 
 // Function to create badge elements
