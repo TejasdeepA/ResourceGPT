@@ -114,6 +114,15 @@ function displayResources(data) {
             description: truncateText(item.description, 'archive')
         })));
     }
+
+    if (results.freecodecamp && (selectedPlatform === 'all' || selectedPlatform === 'freecodecamp')) {
+        console.log('Processing freeCodeCamp results:', results.freecodecamp);
+        allResources.push(...results.freecodecamp.map(item => ({
+            ...item,
+            source: 'freecodecamp',
+            description: truncateText(item.description, 'freecodecamp')
+        })));
+    }
   
     // Display all resources in a single section
     if (allResources.length > 0) {
@@ -231,6 +240,23 @@ function getResourceBadges(item) {
             if (item.downloads) badges.push({ text: `${formatNumber(item.downloads)} downloads`, icon: 'fa-download' });
             if (item.year) badges.push({ text: item.year, icon: 'fa-calendar' });
             if (item.mediaType) badges.push({ text: item.mediaType, icon: 'fa-file' });
+            break;
+
+        case 'freecodecamp':
+            if (item.type === 'article') {
+                badges.push({ text: 'Article', icon: 'fa-newspaper' });
+                if (item.publishedAt) {
+                    const date = new Date(item.publishedAt);
+                    badges.push({ text: date.toLocaleDateString(), icon: 'fa-calendar' });
+                }
+            } else if (item.type === 'forum') {
+                badges.push({ text: 'Forum', icon: 'fa-comments' });
+                if (item.replies) badges.push({ text: `${formatNumber(item.replies)} replies`, icon: 'fa-reply' });
+                if (item.views) badges.push({ text: `${formatNumber(item.views)} views`, icon: 'fa-eye' });
+            } else if (item.type === 'curriculum') {
+                badges.push({ text: 'Tutorial', icon: 'fa-graduation-cap' });
+            }
+            if (item.author) badges.push({ text: item.author, icon: 'fa-user' });
             break;
     }
     

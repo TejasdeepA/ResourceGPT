@@ -15,6 +15,7 @@ const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const REDDIT_CLIENT_ID = process.env.REDDIT_CLIENT_ID;
 const REDDIT_SECRET = process.env.REDDIT_SECRET;
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
+const FCC_API_KEY = process.env.FCC_API_KEY;
 
 // API Endpoints
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
@@ -23,6 +24,8 @@ const YOUTUBE_API_URL = 'https://www.googleapis.com/youtube/v3/search';
 const REDDIT_TOKEN_URL = 'https://www.reddit.com/api/v1/access_token';
 const REDDIT_SEARCH_URL = 'https://oauth.reddit.com/search';
 const ARCHIVE_API_URL = 'https://archive.org/advancedsearch.php';
+const FCC_NEWS_API = 'https://www.freecodecamp.org/news/ghost/api/v3/content/posts';
+const FCC_FORUM_API = 'https://forum.freecodecamp.org/search.json';
 
 // Function to get Reddit access token
 async function getRedditAccessToken() {
@@ -255,6 +258,115 @@ async function searchArchive(keywords, originalQuery) {
   }
 }
 
+// Function to search freeCodeCamp
+async function searchFreeCodeCamp(keywords, originalQuery) {
+  try {
+    console.log('Searching freeCodeCamp with keywords:', keywords);
+    const query = keywords.join(' ');
+    const results = [];
+
+    // Search freeCodeCamp News using their public RSS feed
+    try {
+      const newsResponse = await axios.get('https://www.freecodecamp.org/news/search/posts.json', {
+        params: {
+          q: query
+        }
+      });
+
+      console.log('freeCodeCamp News response:', newsResponse.data);
+
+      if (newsResponse.data && newsResponse.data.posts) {
+        results.push(...newsResponse.data.posts.map(post => ({
+          title: post.title,
+          description: post.excerpt || post.meta_description || 'No description available',
+          url: `https://www.freecodecamp.org/news/${post.slug}`,
+          author: post.primary_author ? post.primary_author.name : 'freeCodeCamp',
+          publishedAt: post.published_at,
+          type: 'article',
+          platform: 'freecodecamp'
+        })));
+      }
+    } catch (error) {
+      console.error('Error searching freeCodeCamp News:', error.message);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+      }
+    }
+
+    // Search freeCodeCamp Forum
+    try {
+      const forumResponse = await axios.get('https://forum.freecodecamp.org/search/query', {
+        params: {
+          term: query,
+          include_blurbs: true
+        },
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      console.log('freeCodeCamp Forum response:', forumResponse.data);
+
+      if (forumResponse.data && forumResponse.data.topics) {
+        results.push(...forumResponse.data.topics.map(topic => ({
+          title: topic.title,
+          description: topic.blurb || 'No description available',
+          url: `https://forum.freecodecamp.org/t/${topic.slug}`,
+          author: topic.last_poster_username || 'Unknown',
+          replies: topic.reply_count,
+          views: topic.views,
+          type: 'forum',
+          platform: 'freecodecamp'
+        })));
+      }
+    } catch (error) {
+      console.error('Error searching freeCodeCamp Forum:', error.message);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+      }
+    }
+
+    // As a fallback, search their curriculum guide
+    try {
+      const guideResponse = await axios.get('https://api.github.com/search/repositories', {
+        params: {
+          q: `${query} repo:freeCodeCamp/freeCodeCamp path:curriculum/challenges/english`,
+          sort: 'stars',
+          order: 'desc',
+          per_page: 10
+        },
+        headers: {
+          'Accept': 'application/vnd.github.v3+json',
+          'Authorization': `token ${process.env.GITHUB_TOKEN}`
+        }
+      });
+
+      console.log('freeCodeCamp Curriculum response:', guideResponse.data);
+
+      if (guideResponse.data && guideResponse.data.items) {
+        results.push(...guideResponse.data.items.map(item => ({
+          title: item.name.replace(/-/g, ' '),
+          description: item.description || 'A freeCodeCamp curriculum challenge',
+          url: item.html_url.replace('https://github.com/freeCodeCamp/freeCodeCamp/tree/main/', 'https://www.freecodecamp.org/learn/'),
+          type: 'curriculum',
+          platform: 'freecodecamp'
+        })));
+      }
+    } catch (error) {
+      console.error('Error searching freeCodeCamp Curriculum:', error.message);
+      if (error.response) {
+        console.error('Error response:', error.response.data);
+      }
+    }
+
+    console.log(`Found ${results.length} results from freeCodeCamp`);
+    return results;
+  } catch (error) {
+    console.error('Error in freeCodeCamp search:', error);
+    return [];
+  }
+}
+
 // Function to get content preview
 async function getContentPreview(url, source) {
     try {
@@ -431,6 +543,9 @@ app.get('/api/search', async (req, res) => {
     }
     if (platform === 'all' || platform === 'archive') {
       searchPromises.push(searchArchive(keywords, query).then(data => ({ archive: data })));
+    }
+    if (platform === 'all' || platform === 'freecodecamp') {
+      searchPromises.push(searchFreeCodeCamp(keywords, query).then(data => ({ freecodecamp: data })));
     }
 
     const searchResults = await Promise.all(searchPromises);
