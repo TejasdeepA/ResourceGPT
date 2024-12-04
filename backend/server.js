@@ -102,33 +102,96 @@ async function rankResources(query, resources) {
 async function searchGitHub(keywords, originalQuery) {
   try {
     console.log('Searching GitHub with keywords:', keywords);
-    const query = encodeURIComponent(keywords.join(' '));
-    const response = await axios.get(`${GITHUB_API_URL}?q=${query}&sort=stars&per_page=15`, {
-      headers: GITHUB_TOKEN ? {
-        'Authorization': `token ${GITHUB_TOKEN}`,
-        'Accept': 'application/vnd.github.v3+json'
-      } : {
-        'Accept': 'application/vnd.github.v3+json'
+    const query = keywords.join(' ');
+
+    // Construct a more specific query for repositories
+    const searchQuery = `${query} in:readme in:description language:javascript language:python language:java language:cpp language:html language:css`;
+    
+    const response = await axios.get(GITHUB_API_URL, {
+      params: {
+        q: searchQuery,
+        sort: 'stars',
+        order: 'desc',
+        per_page: 50
+      },
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `token ${GITHUB_TOKEN}`
       }
     });
 
-    console.log(`Found ${response.data.items.length} GitHub repositories`);
-    
-    // Map repositories directly without relevance check due to rate limit
-    const repos = response.data.items.map(repo => ({
-      type: 'github',
-      title: repo.full_name,
-      description: repo.description || 'No description available',
-      url: repo.html_url,
-      stars: repo.stargazers_count,
-      topics: repo.topics || [],
-      language: repo.language,
-      forks: repo.forks_count
-    }));
+    if (!response.data?.items) {
+      return [];
+    }
 
-    return repos.slice(0, 15);
+    // Calculate repository relevance
+    const calculateRepoRelevance = (repo) => {
+      let score = 0;
+      const repoText = [
+        repo.name,
+        repo.description,
+        repo.topics?.join(' ') || ''
+      ].join(' ').toLowerCase();
+
+      // Keyword matching
+      keywords.forEach(keyword => {
+        if (repoText.includes(keyword.toLowerCase())) {
+          score += 2;
+          // Bonus for name/description matches
+          if (repo.name.toLowerCase().includes(keyword.toLowerCase()) ||
+              repo.description?.toLowerCase().includes(keyword.toLowerCase())) {
+            score += 2;
+          }
+        }
+      });
+
+      // Quality indicators
+      if (repo.stargazers_count > 100) score += 1;
+      if (repo.stargazers_count > 1000) score += 2;
+      if (repo.stargazers_count > 10000) score += 3;
+      
+      if (repo.forks_count > 50) score += 1;
+      if (repo.forks_count > 500) score += 2;
+      
+      if (!repo.fork) score += 1; // Original repositories
+      if (repo.homepage) score += 1; // Has documentation
+      if (repo.topics?.length > 0) score += 1; // Well-tagged
+
+      return score;
+    };
+
+    const results = await Promise.all(
+      response.data.items
+        .map(async repo => {
+          const relevanceScore = calculateRepoRelevance(repo);
+          if (relevanceScore < 4) return null; // Filter out low-relevance repos
+
+          // Check content relevance
+          const isRelevant = await checkGitHubRelevance(repo.full_name, originalQuery);
+          if (!isRelevant) return null;
+
+          return {
+            title: repo.name,
+            description: repo.description || 'No description available',
+            url: repo.html_url,
+            author: repo.owner.login,
+            stars: repo.stargazers_count,
+            forks: repo.forks_count,
+            language: repo.language,
+            topics: repo.topics || [],
+            platform: 'github',
+            relevance: relevanceScore
+          };
+        })
+    );
+
+    return results
+      .filter(Boolean)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 20);
+
   } catch (error) {
-    console.error('Error searching GitHub:', error.response?.data || error.message);
+    console.error('Error searching GitHub:', error);
     return [];
   }
 }
@@ -137,118 +200,119 @@ async function searchGitHub(keywords, originalQuery) {
 async function searchYouTube(keywords, originalQuery) {
   try {
     console.log('Searching YouTube with keywords:', keywords);
-    const query = encodeURIComponent(keywords.join(' '));
-    
-    // Search for both videos and playlists in a single request
-    const searchResponse = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+    const query = keywords.join(' ');
+
+    const response = await axios.get(YOUTUBE_API_URL, {
       params: {
         part: 'snippet',
-        q: query + ' tutorial OR course OR learn',
-        type: 'video,playlist',
-        maxResults: 15,
-        key: YOUTUBE_API_KEY,
+        q: `${query} tutorial programming coding`,
+        type: 'video',
+        maxResults: 50,
         relevanceLanguage: 'en',
-        order: 'relevance'
+        videoType: 'any',
+        key: YOUTUBE_API_KEY
       }
-    }).catch(error => {
-      console.error('YouTube API Error:', error.response?.data || error.message);
-      if (error.response?.data?.error?.errors) {
-        console.error('YouTube API Error Details:', error.response.data.error.errors);
-      }
-      throw error;
     });
 
-    if (!searchResponse.data.items || searchResponse.data.items.length === 0) {
-      console.log('No YouTube results found');
+    if (!response.data?.items) {
       return [];
     }
 
-    // Separate videos and playlists
-    const videos = searchResponse.data.items.filter(item => item.id.kind === 'youtube#video');
-    const playlists = searchResponse.data.items.filter(item => item.id.kind === 'youtube#playlist');
-
-    // Get video details
-    const videoIds = videos.map(item => item.id.videoId);
-    let videoDetails = [];
-    if (videoIds.length > 0) {
-      const videoDetailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
-        params: {
-          part: 'contentDetails,statistics',
-          id: videoIds.join(','),
-          key: YOUTUBE_API_KEY
-        }
-      }).catch(error => {
-        console.error('Error fetching video details:', error.response?.data || error.message);
-        return { data: { items: [] } };
-      });
-      videoDetails = videoDetailsResponse.data.items || [];
-    }
-
-    // Get playlist details
-    const playlistIds = playlists.map(item => item.id.playlistId);
-    let playlistDetails = [];
-    if (playlistIds.length > 0) {
-      const playlistDetailsResponse = await axios.get('https://www.googleapis.com/youtube/v3/playlists', {
-        params: {
-          part: 'contentDetails,statistics',
-          id: playlistIds.join(','),
-          key: YOUTUBE_API_KEY
-        }
-      }).catch(error => {
-        console.error('Error fetching playlist details:', error.response?.data || error.message);
-        return { data: { items: [] } };
-      });
-      playlistDetails = playlistDetailsResponse.data.items || [];
-    }
-
-    // Process videos
-    const processedVideos = videos.map((item, index) => {
-      const details = videoDetails[index] || {};
-      return {
-        platform: 'youtube',
-        type: 'video',
-        title: item.snippet.title,
-        description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
-        url: `https://youtube.com/watch?v=${item.id.videoId}`,
-        thumbnail: item.snippet.thumbnails?.medium?.url || '',
-        author: item.snippet.channelTitle,
-        publishedAt: item.snippet.publishedAt,
-        views: parseInt(details?.statistics?.viewCount) || 0
-      };
+    // Get detailed video information
+    const videoIds = response.data.items.map(item => item.id.videoId).join(',');
+    const videoStats = await axios.get('https://www.googleapis.com/youtube/v3/videos', {
+      params: {
+        part: 'statistics,contentDetails',
+        id: videoIds,
+        key: YOUTUBE_API_KEY
+      }
     });
 
-    // Process playlists
-    const processedPlaylists = playlists.map((item, index) => {
-      const details = playlistDetails[index] || {};
-      return {
-        platform: 'youtube',
-        type: 'playlist',
-        title: item.snippet.title,
-        description: item.snippet.description ? truncateText(item.snippet.description, 150) : '',
-        url: `https://youtube.com/playlist?list=${item.id.playlistId}`,
-        thumbnail: item.snippet.thumbnails?.medium?.url || '',
-        author: item.snippet.channelTitle,
-        publishedAt: item.snippet.publishedAt,
-        videoCount: details?.contentDetails?.itemCount || 0
-      };
-    });
+    const videoStatsMap = new Map(
+      videoStats.data.items.map(item => [item.id, item])
+    );
 
-    // Combine and sort results
-    const allResults = [...processedPlaylists, ...processedVideos]
-      .sort((a, b) => {
-        // Prioritize playlists slightly
-        if (a.type !== b.type) return a.type === 'playlist' ? -1 : 1;
-        return (b.views || 0) - (a.views || 0);
+    // Calculate video relevance
+    const calculateVideoRelevance = (video, stats) => {
+      let score = 0;
+      const videoText = [
+        video.snippet.title,
+        video.snippet.description,
+        video.snippet.tags?.join(' ') || ''
+      ].join(' ').toLowerCase();
+
+      // Keyword matching
+      keywords.forEach(keyword => {
+        if (videoText.includes(keyword.toLowerCase())) {
+          score += 2;
+          // Bonus for title matches
+          if (video.snippet.title.toLowerCase().includes(keyword.toLowerCase())) {
+            score += 3;
+          }
+        }
+      });
+
+      // Quality indicators
+      if (stats) {
+        const viewCount = parseInt(stats.statistics.viewCount) || 0;
+        const likeCount = parseInt(stats.statistics.likeCount) || 0;
+        const commentCount = parseInt(stats.statistics.commentCount) || 0;
+
+        if (viewCount > 1000) score += 1;
+        if (viewCount > 10000) score += 1;
+        if (viewCount > 100000) score += 1;
+
+        if (likeCount > 100) score += 1;
+        if (likeCount > 1000) score += 1;
+
+        if (commentCount > 50) score += 1;
+        
+        // Engagement rate (likes/views)
+        const engagementRate = viewCount > 0 ? (likeCount / viewCount) : 0;
+        if (engagementRate > 0.01) score += 1;
+        if (engagementRate > 0.05) score += 1;
+      }
+
+      // Channel verification
+      if (video.snippet.channelTitle.includes('✓')) score += 1;
+
+      // Educational indicators in title/description
+      const educationalTerms = ['tutorial', 'course', 'learn', 'guide', 'introduction', 'beginners'];
+      educationalTerms.forEach(term => {
+        if (videoText.includes(term)) score += 1;
+      });
+
+      return score;
+    };
+
+    const results = response.data.items
+      .map(video => {
+        const stats = videoStatsMap.get(video.id.videoId);
+        const relevanceScore = calculateVideoRelevance(video, stats);
+        if (relevanceScore < 5) return null;
+
+        return {
+          title: video.snippet.title,
+          description: video.snippet.description,
+          url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
+          thumbnail: video.snippet.thumbnails.high.url,
+          channelTitle: video.snippet.channelTitle,
+          publishedAt: video.snippet.publishedAt,
+          statistics: stats?.statistics || {},
+          duration: stats?.contentDetails?.duration || '',
+          platform: 'youtube',
+          relevance: relevanceScore
+        };
       })
-      .slice(0, 10);
+      .filter(Boolean)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 20);
 
-    console.log(`Returning ${allResults.length} YouTube results`);
-    return allResults;
+    console.log(`Found ${results.length} relevant results from YouTube`);
+    return results;
+
   } catch (error) {
-    console.error('Error in YouTube search:', error.message);
-    if (error.response?.data?.error?.message) {
-      console.error('YouTube API Error Message:', error.response.data.error.message);
-    }
+    console.error('Error searching YouTube:', error);
     return [];
   }
 }
@@ -256,41 +320,102 @@ async function searchYouTube(keywords, originalQuery) {
 // Function to search Reddit
 async function searchReddit(keywords, originalQuery) {
   try {
+    console.log('Searching Reddit with keywords:', keywords);
     const query = keywords.join(' ');
-    const token = await getRedditAccessToken();
+    
+    const accessToken = await getRedditAccessToken();
+    
     const response = await axios.get(REDDIT_SEARCH_URL, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'User-Agent': 'ResourceGPT/1.0'
-      },
       params: {
-        q: query,
-        limit: 50,
+        q: `${query} subreddit:programming OR subreddit:learnprogramming OR subreddit:coding OR subreddit:webdev OR subreddit:python OR subreddit:javascript`,
         sort: 'relevance',
+        limit: 50,
         type: 'link,self',
-        t: 'year' // Include content from the past year
+        t: 'all'
+      },
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'User-Agent': 'ResourceGPT/1.0'
       }
     });
 
-    // Filter and check relevance for each post
-    const relevantPosts = [];
-    for (const post of response.data.data.children) {
-      if (await checkRedditRelevance(post, originalQuery, GEMINI_API_KEY)) {
-        relevantPosts.push({
-          title: post.data.title,
-          url: `https://reddit.com${post.data.permalink}`,
-          description: truncateText(post.data.selftext || 'No description available', 150),
-          upvotes: post.data.ups,
-          subreddit: post.data.subreddit,
-          type: 'reddit',
-          created_utc: post.data.created_utc,
-          num_comments: post.data.num_comments,
-          score: post.data.score
-        });
-      }
-      if (relevantPosts.length >= 15) break; // Increased from 5 to 15
+    if (!response.data?.data?.children) {
+      return [];
     }
-    return relevantPosts;
+
+    // Calculate post relevance
+    const calculatePostRelevance = async (post) => {
+      let score = 0;
+      const postText = [
+        post.title,
+        post.selftext,
+        post.subreddit_name_prefixed
+      ].join(' ').toLowerCase();
+
+      // Keyword matching
+      keywords.forEach(keyword => {
+        if (postText.includes(keyword.toLowerCase())) {
+          score += 2;
+          // Bonus for title matches
+          if (post.title.toLowerCase().includes(keyword.toLowerCase())) {
+            score += 3;
+          }
+        }
+      });
+
+      // Quality indicators
+      if (post.score > 10) score += 1;
+      if (post.score > 100) score += 2;
+      if (post.score > 1000) score += 3;
+
+      if (post.num_comments > 5) score += 1;
+      if (post.num_comments > 20) score += 2;
+      if (post.num_comments > 100) score += 3;
+
+      // Award bonus
+      if (post.all_awardings?.length > 0) score += 1;
+
+      // Educational subreddit bonus
+      const educationalSubs = ['learnprogramming', 'programming', 'coding', 'webdev'];
+      if (educationalSubs.some(sub => post.subreddit.toLowerCase().includes(sub))) {
+        score += 2;
+      }
+
+      // Check content relevance
+      const isRelevant = await checkRedditRelevance(post.url, originalQuery);
+      if (isRelevant) score += 5;
+
+      return score;
+    };
+
+    const results = await Promise.all(
+      response.data.data.children
+        .map(async ({ data: post }) => {
+          const relevanceScore = await calculatePostRelevance(post);
+          if (relevanceScore < 5) return null;
+
+          return {
+            title: post.title,
+            description: post.selftext ? 
+              (post.selftext.length > 300 ? post.selftext.substring(0, 300) + '...' : post.selftext) : 
+              'No description available',
+            url: `https://reddit.com${post.permalink}`,
+            author: post.author,
+            score: post.score,
+            numComments: post.num_comments,
+            subreddit: post.subreddit_name_prefixed,
+            created: post.created_utc,
+            platform: 'reddit',
+            relevance: relevanceScore
+          };
+        })
+    );
+
+    return results
+      .filter(Boolean)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 20);
+
   } catch (error) {
     console.error('Error searching Reddit:', error);
     return [];
@@ -303,42 +428,95 @@ async function searchArchive(keywords, originalQuery) {
     console.log('Searching Internet Archive with keywords:', keywords);
     const query = keywords.join(' ');
     
+    // Construct a more specific query for educational content
+    const educationalQuery = `${query} AND (mediatype:(texts OR movies OR education) AND format:(PDF OR MP4 OR AVI) AND collection:(opensource_movies OR inlibrary))`;
+    
     const response = await axios.get(ARCHIVE_API_URL, {
       params: {
-        q: query,
-        fl: 'identifier,title,description,creator,year,downloads,mediatype',
+        q: educationalQuery,
+        fl: ['identifier', 'title', 'description', 'creator', 'year', 'downloads', 
+             'mediatype', 'subject', 'collection', 'language', 'format'].join(','),
         output: 'json',
-        rows: 20,
+        rows: 50, // Get more results initially for better filtering
         sort: '-downloads',
         page: 1
       }
     });
 
-    console.log('Internet Archive API Response:', JSON.stringify(response.data, null, 2));
-
-    if (!response.data || !response.data.response || !response.data.response.docs) {
+    if (!response.data?.response?.docs) {
       console.log('No results from Internet Archive');
       return [];
     }
 
-    const results = response.data.response.docs.map(item => ({
-      title: item.title || 'No Title',
-      description: item.description || 'No description available',
-      url: `https://archive.org/details/${item.identifier}`,
-      author: item.creator ? (Array.isArray(item.creator) ? item.creator[0] : item.creator) : 'Unknown',
-      year: item.year || 'N/A',
-      downloads: item.downloads || 0,
-      mediaType: item.mediatype || 'unknown',
-      platform: 'archive'
-    }));
+    // Helper function to calculate relevance score
+    const calculateRelevance = (item) => {
+      let score = 0;
+      const itemText = [
+        item.title,
+        item.description,
+        Array.isArray(item.subject) ? item.subject.join(' ') : item.subject
+      ].join(' ').toLowerCase();
+      
+      // Check for keyword matches
+      keywords.forEach(keyword => {
+        const keywordLower = keyword.toLowerCase();
+        if (itemText.includes(keywordLower)) {
+          score += 2;
+          // Bonus for title matches
+          if (item.title?.toLowerCase().includes(keywordLower)) {
+            score += 3;
+          }
+        }
+      });
 
-    console.log(`Found ${results.length} results from Internet Archive`);
+      // Bonus for educational content
+      if (item.collection?.includes('education') || 
+          item.collection?.includes('inlibrary') ||
+          item.collection?.includes('opensource_movies')) {
+        score += 2;
+      }
+
+      // Bonus for popular content
+      if (item.downloads > 1000) score += 1;
+      if (item.downloads > 10000) score += 1;
+
+      // Bonus for English content
+      if (item.language === 'eng') score += 1;
+
+      // Penalty for non-educational formats
+      if (!['PDF', 'MP4', 'AVI'].includes(item.format)) {
+        score -= 1;
+      }
+
+      return score;
+    };
+
+    // Filter and sort results by relevance
+    const results = response.data.response.docs
+      .map(item => ({
+        ...item,
+        relevanceScore: calculateRelevance(item)
+      }))
+      .filter(item => item.relevanceScore > 3) // Only keep relevant results
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, 20) // Return top 20 most relevant results
+      .map(item => ({
+        title: item.title || 'No Title',
+        description: item.description?.[0] || item.description || 'No description available',
+        url: `https://archive.org/details/${item.identifier}`,
+        author: item.creator ? (Array.isArray(item.creator) ? item.creator[0] : item.creator) : 'Unknown',
+        year: item.year || 'N/A',
+        downloads: item.downloads || 0,
+        mediaType: item.mediatype || 'unknown',
+        format: item.format || 'unknown',
+        platform: 'archive',
+        relevance: item.relevanceScore
+      }));
+
+    console.log(`Found ${results.length} relevant results from Internet Archive`);
     return results;
   } catch (error) {
     console.error('Error searching Internet Archive:', error);
-    if (error.response) {
-      console.error('Error response:', error.response.data);
-    }
     return [];
   }
 }
@@ -346,98 +524,125 @@ async function searchArchive(keywords, originalQuery) {
 // Function to search freeCodeCamp
 async function searchFreeCodeCamp(keywords, originalQuery) {
   try {
-    console.log('Searching freeCodeCamp with keywords:', keywords);
-    const query = keywords.join(' ');
+    console.log('Searching freeCodeCamp courses with keywords:', keywords);
+    
+    // Define the course catalog structure with keywords for better matching
+    const courseStructure = {
+      'responsive-web-design': {
+        title: '(New) Responsive Web Design Certification',
+        description: 'Learn HTML and CSS fundamentals to design responsive websites',
+        keywords: ['html', 'css', 'web', 'design', 'responsive', 'frontend', 'front-end', 'web development']
+      },
+      'javascript-algorithms-and-data-structures': {
+        title: 'JavaScript Algorithms and Data Structures Certification',
+        description: 'Learn JavaScript fundamentals, algorithms, and data structures',
+        keywords: ['javascript', 'js', 'algorithms', 'data structures', 'programming', 'coding']
+      },
+      'front-end-development-libraries': {
+        title: 'Front End Development Libraries Certification',
+        description: 'Learn popular front-end libraries like Bootstrap, jQuery, React, and Redux',
+        keywords: ['react', 'redux', 'bootstrap', 'jquery', 'sass', 'frontend', 'front-end', 'web', 'javascript']
+      },
+      'data-visualization': {
+        title: 'Data Visualization Certification',
+        description: 'Learn to visualize data with D3.js, JSON APIs, and AJAX',
+        keywords: ['d3', 'data', 'visualization', 'charts', 'graphs', 'javascript', 'api']
+      },
+      'back-end-development-and-apis': {
+        title: 'Back End Development and APIs Certification',
+        description: 'Learn Node.js, Express, and MongoDB to create backend applications',
+        keywords: ['node', 'nodejs', 'express', 'mongodb', 'backend', 'back-end', 'api', 'server']
+      },
+      'quality-assurance': {
+        title: 'Quality Assurance Certification',
+        description: 'Learn testing with Chai and advanced Node/Express integration',
+        keywords: ['testing', 'qa', 'quality', 'assurance', 'chai', 'node', 'express', 'test']
+      },
+      'scientific-computing-with-python': {
+        title: 'Scientific Computing with Python Certification',
+        description: 'Learn Python fundamentals and scientific computing',
+        keywords: ['python', 'scientific', 'computing', 'programming', 'coding']
+      },
+      'data-analysis-with-python': {
+        title: 'Data Analysis with Python Certification',
+        description: 'Learn data analysis with Python using NumPy, Pandas, and Matplotlib',
+        keywords: ['python', 'data', 'analysis', 'numpy', 'pandas', 'matplotlib', 'analytics']
+      },
+      'information-security': {
+        title: 'Information Security Certification',
+        description: 'Learn information security and penetration testing',
+        keywords: ['security', 'infosec', 'penetration', 'testing', 'python', 'cybersecurity']
+      },
+      'machine-learning-with-python': {
+        title: 'Machine Learning with Python Certification',
+        description: 'Learn machine learning fundamentals with TensorFlow',
+        keywords: ['python', 'machine learning', 'ml', 'tensorflow', 'ai', 'artificial intelligence', 'data']
+      }
+    };
+
     const results = [];
-
-    // Search freeCodeCamp News using their Ghost API
-    try {
-      const newsResponse = await axios.get(`${FCC_NEWS_API}/search`, {
-        params: {
-          q: query,
-          limit: 10,
-          fields: 'title,excerpt,url,published_at,primary_author'
+    const searchTerms = keywords.map(k => k.toLowerCase());
+    const originalQueryLower = originalQuery.toLowerCase();
+    
+    // Helper function to calculate relevance score
+    const calculateRelevance = (course, courseSlug) => {
+      let score = 0;
+      
+      // Check keywords match
+      course.keywords.forEach(keyword => {
+        if (searchTerms.some(term => keyword.includes(term) || term.includes(keyword))) {
+          score += 2;
         }
       });
-
-      console.log('freeCodeCamp News response:', newsResponse.data);
-
-      if (newsResponse.data && newsResponse.data.posts) {
-        results.push(...newsResponse.data.posts.map(post => ({
-          title: post.title,
-          description: post.excerpt || 'No description available',
-          url: post.url,
-          author: post.primary_author ? post.primary_author.name : 'freeCodeCamp',
-          publishedAt: post.published_at,
-          type: 'article',
-          platform: 'freecodecamp'
-        })));
+      
+      // Check title match
+      if (searchTerms.some(term => course.title.toLowerCase().includes(term))) {
+        score += 2;
       }
-    } catch (error) {
-      console.error('Error searching freeCodeCamp News:', error.message);
-    }
-
-    // Search freeCodeCamp Forum using Discourse API
-    try {
-      const forumResponse = await axios.get(FCC_FORUM_API, {
-        params: {
-          q: query,
-          page: 1,
-          per_page: 10
-        }
-      });
-
-      console.log('freeCodeCamp Forum response:', forumResponse.data);
-
-      if (forumResponse.data && forumResponse.data.topics) {
-        results.push(...forumResponse.data.topics.map(topic => ({
-          title: topic.title,
-          description: topic.excerpt || 'No description available',
-          url: `https://forum.freecodecamp.org/t/${topic.slug}/${topic.id}`,
-          author: topic.last_poster_username || 'Unknown',
-          replies: topic.posts_count,
-          views: topic.views,
-          type: 'forum',
-          platform: 'freecodecamp'
-        })));
+      
+      // Check description match
+      if (searchTerms.some(term => course.description.toLowerCase().includes(term))) {
+        score += 1;
       }
-    } catch (error) {
-      console.error('Error searching freeCodeCamp Forum:', error.message);
-    }
+      
+      // Bonus points for exact matches
+      if (course.keywords.some(keyword => originalQueryLower.includes(keyword))) {
+        score += 3;
+      }
+      
+      return score;
+    };
 
-    // Search freeCodeCamp Curriculum on GitHub
-    if (process.env.GITHUB_TOKEN) {
-      try {
-        const guideResponse = await axios.get('https://api.github.com/search/code', {
-          params: {
-            q: `${query} repo:freeCodeCamp/freeCodeCamp path:curriculum/challenges/english`,
-            per_page: 10
-          },
-          headers: {
-            'Accept': 'application/vnd.github.v3+json',
-            'Authorization': `token ${process.env.GITHUB_TOKEN}`
-          }
+    // Find matching courses and calculate their relevance
+    const matchingCourses = [];
+    for (const [courseSlug, course] of Object.entries(courseStructure)) {
+      const relevanceScore = calculateRelevance(course, courseSlug);
+      
+      // Only include courses with a minimum relevance score
+      if (relevanceScore >= 2) {
+        matchingCourses.push({
+          ...course,
+          slug: courseSlug,
+          score: relevanceScore
         });
-
-        console.log('freeCodeCamp Curriculum response:', guideResponse.data);
-
-        if (guideResponse.data && guideResponse.data.items) {
-          results.push(...guideResponse.data.items.map(item => ({
-            title: item.name.replace(/-/g, ' ').replace('.md', ''),
-            description: 'freeCodeCamp curriculum challenge',
-            url: `https://www.freecodecamp.org/learn/${item.path.split('/').slice(-2).join('/')}`,
-            type: 'curriculum',
-            platform: 'freecodecamp'
-          })));
-        }
-      } catch (error) {
-        console.error('Error searching freeCodeCamp Curriculum:', error.message);
       }
-    } else {
-      console.log('Skipping curriculum search - GITHUB_TOKEN not configured');
     }
 
-    console.log(`Found ${results.length} results from freeCodeCamp`);
+    // Sort by relevance score and convert to final format
+    matchingCourses
+      .sort((a, b) => b.score - a.score)
+      .forEach(course => {
+        results.push({
+          title: course.title,
+          description: course.description,
+          url: `https://www.freecodecamp.org/learn/${course.slug}`,
+          type: 'course',
+          platform: 'freecodecamp',
+          relevance: course.score
+        });
+      });
+
+    console.log(`Found ${results.length} relevant courses from freeCodeCamp`);
     return results;
   } catch (error) {
     console.error('Error in freeCodeCamp search:', error);
