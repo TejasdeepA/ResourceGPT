@@ -56,7 +56,7 @@ async function handleSearch() {
         const selectedPlatform = form.querySelector('input[name="platform"]:checked').value;
         console.log('Selected platform:', selectedPlatform);
         
-        const response = await fetch(`http://localhost:5000/api/search?query=${encodeURIComponent(query)}&platform=${selectedPlatform}`);
+        const response = await fetch(`https://resourcegpt-backend-chhj.onrender.com/api/search?query=${encodeURIComponent(query)}&platform=${selectedPlatform}`);
         if (!response.ok) {
             throw new Error('Network response was not ok');
         }
