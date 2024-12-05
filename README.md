@@ -79,6 +79,7 @@ The frontend will be available at `http://localhost:8080` (or the next available
   - Reddit posts
   - Internet Archive content
   - FreeCodeCamp articles and forum posts
+  - Internet archive books, videos, articles
 - AI-powered content ranking using Google's Gemini
 - Tag management system
 - Content preview functionality
@@ -92,12 +93,8 @@ The application integrates with multiple platforms. Make sure you have valid API
 - GitHub API
 - Reddit API
 - YouTube API
-- FreeCodeCamp API
 
 ## Contributing
 
 This project was created for a hackathon. Feel free to submit issues and enhancement requests.
 
-## License
-
-[Your chosen license]
